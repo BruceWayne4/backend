@@ -1,0 +1,2801 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "AJVC Portfolio Intelligence Dashboard API",
+    "description": "\n## 🚀 AJVC Portfolio Intelligence Dashboard - Backend API\n\nA comprehensive **portfolio management system** for venture capital firms to track portfolio companies,\nanalyze project execution, monitor commitments, and gain AI-powered insights from meeting notes.\n\n### Key Features\n\n* **📊 Company Management**: Track portfolio companies with investment details and status\n* **📈 Gantt Layer Analytics**: Pull data from Google Sheets and compute execution KPIs\n* **📝 AI-Powered Meeting Analysis**: Upload DOCX meeting notes for automatic parsing with Google Gemini\n* **✅ Commitment Tracking**: Automatically extract and track actionable commitments from meetings\n* **🔒 Secure Authentication**: JWT-based authentication for all protected endpoints\n\n### Tech Stack\n\n* **FastAPI** for high-performance async API\n* **PostgreSQL** with SQLAlchemy ORM\n* **Google Gemini AI** for intelligent meeting parsing\n* **Google Sheets API** for Gantt data integration\n* **JWT Authentication** for secure access\n\n### Getting Started\n\n1. Authenticate via `/api/v1/auth/login` to get a JWT token\n2. Include the token in the `Authorization: Bearer <token>` header\n3. Create or select a company via `/api/v1/companies`\n4. Upload meeting notes or pull Gantt data for analysis\n\n### API Versioning\n\nCurrent version: **v1.0.0** - All endpoints are prefixed with `/api/v1`\n    ",
+    "contact": {
+      "name": "AJVC Portfolio Intelligence",
+      "email": "support@ajvc.in"
+    },
+    "license": {
+      "name": "Proprietary"
+    },
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/v1/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Login",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/": {
+      "get": {
+        "tags": [
+          "companies"
+        ],
+        "summary": "List Companies",
+        "operationId": "list_companies_api_v1_companies__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyList"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      },
+      "post": {
+        "tags": [
+          "companies"
+        ],
+        "summary": "Create Company",
+        "operationId": "create_company_api_v1_companies__post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/companies/{company_id}": {
+      "get": {
+        "tags": [
+          "companies"
+        ],
+        "summary": "Get Company",
+        "operationId": "get_company_api_v1_companies__company_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "companies"
+        ],
+        "summary": "Update Company",
+        "operationId": "update_company_api_v1_companies__company_id__put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompanyUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "companies"
+        ],
+        "summary": "Delete Company",
+        "operationId": "delete_company_api_v1_companies__company_id__delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/{company_id}/pull": {
+      "post": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "Pull Gantt",
+        "operationId": "pull_gantt_api_v1_gantt__company_id__pull_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GanttPullRequest",
+                "default": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GanttPullResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/{company_id}/latest": {
+      "get": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "Get Latest Snapshot",
+        "operationId": "get_latest_snapshot_api_v1_gantt__company_id__latest_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GanttSnapshotRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/{company_id}/snapshots": {
+      "get": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "List Snapshots",
+        "operationId": "list_snapshots_api_v1_gantt__company_id__snapshots_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Page Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GanttSnapshotList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/{company_id}/tasks": {
+      "get": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "Get Tasks",
+        "operationId": "get_tasks_api_v1_gantt__company_id__tasks_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Division"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TasksResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/{company_id}/velocity-history": {
+      "get": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "Get Velocity History",
+        "operationId": "get_velocity_history_api_v1_gantt__company_id__velocity_history_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VelocityHistoryResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/gantt/portfolio-overview": {
+      "get": {
+        "tags": [
+          "gantt"
+        ],
+        "summary": "Get Portfolio Overview",
+        "description": "Return one row per company with stage counts + KPI scores from their\nlatest GanttSnapshot. Companies with no snapshot are included with\nzero counts and null KPIs.",
+        "operationId": "get_portfolio_overview_api_v1_gantt_portfolio_overview_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioOverviewResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/api/v1/companies/{company_id}/meetings/upload-docx": {
+      "post": {
+        "tags": [
+          "meetings"
+        ],
+        "summary": "Upload Meeting Docx",
+        "description": "Upload a DOCX file containing ONE meeting's notes.\nParses the meeting and stores in database.",
+        "operationId": "upload_meeting_docx_api_v1_companies__company_id__meetings_upload_docx_post",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_meeting_docx_api_v1_companies__company_id__meetings_upload_docx_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{company_id}/meetings/upload-test-dump": {
+      "post": {
+        "tags": [
+          "meetings"
+        ],
+        "summary": "Upload Test Meeting Dump",
+        "description": "TEST ENDPOINT: Upload Meeting_Dump.docx with multiple meetings.\nThis is for testing only. Production uses single meeting uploads.",
+        "operationId": "upload_test_meeting_dump_api_v1_companies__company_id__meetings_upload_test_dump_post",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_test_meeting_dump_api_v1_companies__company_id__meetings_upload_test_dump_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingTestUploadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{company_id}/meetings": {
+      "get": {
+        "tags": [
+          "meetings"
+        ],
+        "summary": "List Meetings",
+        "description": "List all meetings for a company, ordered by date descending.",
+        "operationId": "list_meetings_api_v1_companies__company_id__meetings_get",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{company_id}/meetings/{meeting_id}": {
+      "get": {
+        "tags": [
+          "meetings"
+        ],
+        "summary": "Get Meeting",
+        "description": "Get a specific meeting.",
+        "operationId": "get_meeting_api_v1_companies__company_id__meetings__meeting_id__get",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "meeting_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Meeting Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MeetingRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{company_id}/commitments": {
+      "get": {
+        "tags": [
+          "commitments"
+        ],
+        "summary": "List Commitments",
+        "description": "List commitments for a company.\nSorted with overdue first, then by due date.\n\nQuery params:\n- status_filter: Filter by status (open, due-soon, overdue, resolved)",
+        "operationId": "list_commitments_api_v1_companies__company_id__commitments_get",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "status_filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status Filter"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitmentList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies/{company_id}/commitments/{commitment_id}": {
+      "get": {
+        "tags": [
+          "commitments"
+        ],
+        "summary": "Get Commitment",
+        "description": "Get a specific commitment.",
+        "operationId": "get_commitment_api_v1_companies__company_id__commitments__commitment_id__get",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "commitment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Commitment Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitmentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "commitments"
+        ],
+        "summary": "Update Commitment",
+        "description": "Update commitment status or details.",
+        "operationId": "update_commitment_api_v1_companies__company_id__commitments__commitment_id__patch",
+        "parameters": [
+          {
+            "name": "company_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Company Id"
+            }
+          },
+          {
+            "name": "commitment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Commitment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommitmentUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommitmentRead"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Body_upload_meeting_docx_api_v1_companies__company_id__meetings_upload_docx_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_meeting_docx_api_v1_companies__company_id__meetings_upload_docx_post"
+      },
+      "Body_upload_test_meeting_dump_api_v1_companies__company_id__meetings_upload_test_dump_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_test_meeting_dump_api_v1_companies__company_id__meetings_upload_test_dump_post"
+      },
+      "CommitmentList": {
+        "properties": {
+          "commitments": {
+            "items": {
+              "$ref": "#/components/schemas/CommitmentRead"
+            },
+            "type": "array",
+            "title": "Commitments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "commitments"
+        ],
+        "title": "CommitmentList"
+      },
+      "CommitmentRead": {
+        "properties": {
+          "person": {
+            "type": "string",
+            "title": "Person",
+            "description": "Person responsible for the commitment",
+            "examples": [
+              "John Doe (CEO)",
+              "Jane Smith (CTO)",
+              "Founder"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "title": "Action",
+            "description": "Description of the action to be taken",
+            "examples": [
+              "Complete user onboarding flow",
+              "Hire 2 engineers",
+              "Launch MVP"
+            ]
+          },
+          "due_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Due Date",
+            "description": "Due date for the commitment",
+            "examples": [
+              "2024-04-01"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "description": "Source of the commitment",
+            "examples": [
+              "founder-initiated",
+              "aviral-pushed"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Unique commitment identifier"
+          },
+          "company_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Company Id",
+            "description": "Company this commitment belongs to"
+          },
+          "meeting_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Meeting Id",
+            "description": "Meeting where this commitment was mentioned"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "Current status of the commitment",
+            "examples": [
+              "open",
+              "due-soon",
+              "overdue",
+              "resolved"
+            ]
+          },
+          "days_overdue": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days Overdue",
+            "description": "Number of days overdue (only for overdue commitments)",
+            "examples": [
+              3,
+              7,
+              14
+            ]
+          },
+          "origin_meeting_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Meeting Id",
+            "description": "Meeting where this commitment was originally created"
+          },
+          "resolved_in_meeting_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved In Meeting Id",
+            "description": "Meeting where this commitment was resolved"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At",
+            "description": "Timestamp when commitment was marked as resolved"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Record creation timestamp"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Last update timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "person",
+          "action",
+          "source",
+          "id",
+          "company_id",
+          "meeting_id",
+          "status",
+          "created_at"
+        ],
+        "title": "CommitmentRead"
+      },
+      "CommitmentUpdate": {
+        "properties": {
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "resolved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved At"
+          },
+          "resolved_in_meeting_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved In Meeting Id"
+          }
+        },
+        "type": "object",
+        "title": "CommitmentUpdate"
+      },
+      "CompanyCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Company name",
+            "examples": [
+              "TechStartup Inc",
+              "FinanceAI Ltd"
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Type of company investment"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage",
+            "description": "Investment stage (e.g., Seed, Series A, Series B)",
+            "examples": [
+              "Seed",
+              "Series A",
+              "Series B",
+              "Growth"
+            ]
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector",
+            "description": "Industry sector",
+            "examples": [
+              "FinTech",
+              "HealthTech",
+              "EdTech",
+              "SaaS"
+            ]
+          },
+          "investment_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Date",
+            "description": "Date of investment"
+          },
+          "investment_amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Amount Inr",
+            "description": "Investment amount in Indian Rupees",
+            "examples": [
+              5000000,
+              10000000
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CompanyStatus",
+            "description": "Current status of the company",
+            "default": "Active"
+          },
+          "sheets_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheets Url",
+            "description": "Google Sheets URL for Gantt chart data",
+            "examples": [
+              "https://docs.google.com/spreadsheets/d/1abc...xyz/edit"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "CompanyCreate"
+      },
+      "CompanyList": {
+        "properties": {
+          "companies": {
+            "items": {
+              "$ref": "#/components/schemas/CompanyRead"
+            },
+            "type": "array",
+            "title": "Companies"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          }
+        },
+        "type": "object",
+        "required": [
+          "companies",
+          "total"
+        ],
+        "title": "CompanyList"
+      },
+      "CompanyRead": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Company name",
+            "examples": [
+              "TechStartup Inc",
+              "FinanceAI Ltd"
+            ]
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyType"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Type of company investment"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage",
+            "description": "Investment stage (e.g., Seed, Series A, Series B)",
+            "examples": [
+              "Seed",
+              "Series A",
+              "Series B",
+              "Growth"
+            ]
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector",
+            "description": "Industry sector",
+            "examples": [
+              "FinTech",
+              "HealthTech",
+              "EdTech",
+              "SaaS"
+            ]
+          },
+          "investment_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Date",
+            "description": "Date of investment"
+          },
+          "investment_amount_inr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Amount Inr",
+            "description": "Investment amount in Indian Rupees",
+            "examples": [
+              5000000,
+              10000000
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/CompanyStatus",
+            "description": "Current status of the company",
+            "default": "Active"
+          },
+          "sheets_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheets Url",
+            "description": "Google Sheets URL for Gantt chart data",
+            "examples": [
+              "https://docs.google.com/spreadsheets/d/1abc...xyz/edit"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "id",
+          "created_at"
+        ],
+        "title": "CompanyRead"
+      },
+      "CompanyStatus": {
+        "type": "string",
+        "enum": [
+          "Active",
+          "Watch",
+          "At-Risk"
+        ],
+        "title": "CompanyStatus"
+      },
+      "CompanyType": {
+        "type": "string",
+        "enum": [
+          "B2B",
+          "B2C",
+          "B2B2C"
+        ],
+        "title": "CompanyType"
+      },
+      "CompanyUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage"
+          },
+          "sector": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sector"
+          },
+          "investment_date": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Date"
+          },
+          "investment_amount_inr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investment Amount Inr"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CompanyStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "sheets_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheets Url"
+          }
+        },
+        "type": "object",
+        "title": "CompanyUpdate"
+      },
+      "GanttDiff": {
+        "properties": {
+          "stage_changes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Stage Changes",
+            "description": "Tasks that changed stage since last snapshot",
+            "default": []
+          },
+          "new_tasks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "New Tasks",
+            "description": "Tasks added since last snapshot",
+            "default": []
+          },
+          "removed_tasks": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Removed Tasks",
+            "description": "Tasks removed since last snapshot",
+            "default": []
+          }
+        },
+        "type": "object",
+        "title": "GanttDiff"
+      },
+      "GanttPullRequest": {
+        "properties": {
+          "sheets_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sheets Url",
+            "description": "Google Sheets URL to pull from (overrides company's default)",
+            "examples": [
+              "https://docs.google.com/spreadsheets/d/1abc...xyz/edit"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "GanttPullRequest"
+      },
+      "GanttPullResponse": {
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Snapshot Id",
+            "description": "ID of the created snapshot"
+          },
+          "upload_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Upload Date",
+            "description": "Date of the snapshot"
+          },
+          "task_count": {
+            "type": "integer",
+            "title": "Task Count",
+            "description": "Total number of tasks in the snapshot"
+          },
+          "shipping_velocity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipping Velocity",
+            "description": "Shipping velocity KPI (0-100)",
+            "examples": [
+              75.5
+            ]
+          },
+          "execution_speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Speed",
+            "description": "Execution speed KPI (0-100)",
+            "examples": [
+              82.3
+            ]
+          },
+          "planning_depth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Depth",
+            "description": "Planning depth KPI (0-100)",
+            "examples": [
+              68.9
+            ]
+          },
+          "planning_quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Quality Score",
+            "description": "Overall planning quality score (0-100)",
+            "examples": [
+              71.2
+            ]
+          },
+          "gantt_diff": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GanttDiff"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Diff from previous snapshot"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_id",
+          "upload_date",
+          "task_count"
+        ],
+        "title": "GanttPullResponse"
+      },
+      "GanttSnapshotList": {
+        "properties": {
+          "snapshots": {
+            "items": {
+              "$ref": "#/components/schemas/GanttSnapshotRead"
+            },
+            "type": "array",
+            "title": "Snapshots"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "page_size": {
+            "type": "integer",
+            "title": "Page Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshots",
+          "total",
+          "page",
+          "page_size"
+        ],
+        "title": "GanttSnapshotList"
+      },
+      "GanttSnapshotRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "company_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Company Id"
+          },
+          "upload_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Upload Date"
+          },
+          "tasks": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tasks"
+          },
+          "shipping_velocity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipping Velocity"
+          },
+          "execution_speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Speed"
+          },
+          "planning_depth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Depth"
+          },
+          "planning_quality_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Quality Score"
+          },
+          "task_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task Count"
+          },
+          "gantt_diff": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gantt Diff"
+          },
+          "scorecard_history": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scorecard History"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "company_id",
+          "upload_date",
+          "created_at"
+        ],
+        "title": "GanttSnapshotRead"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "LoginRequest": {
+        "properties": {
+          "password": {
+            "type": "string",
+            "title": "Password"
+          }
+        },
+        "type": "object",
+        "required": [
+          "password"
+        ],
+        "title": "LoginRequest"
+      },
+      "MeetingList": {
+        "properties": {
+          "meetings": {
+            "items": {
+              "$ref": "#/components/schemas/MeetingRead"
+            },
+            "type": "array",
+            "title": "Meetings",
+            "description": "List of meetings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meetings"
+        ],
+        "title": "MeetingList"
+      },
+      "MeetingRead": {
+        "properties": {
+          "meeting_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Meeting Date",
+            "description": "Date when the meeting took place",
+            "examples": [
+              "2024-03-15"
+            ]
+          },
+          "raw_notes": {
+            "type": "string",
+            "title": "Raw Notes",
+            "description": "Raw meeting notes text content",
+            "examples": [
+              "Meeting with CEO to discuss Q1 roadmap..."
+            ]
+          },
+          "docx_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Docx Filename",
+            "description": "Original DOCX filename",
+            "examples": [
+              "meeting_2024_03_15.docx"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "Unique meeting identifier"
+          },
+          "company_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Company Id",
+            "description": "Company this meeting belongs to"
+          },
+          "ai_summary": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ai Summary",
+            "description": "AI-generated summary of the meeting (JSON array of strings)"
+          },
+          "decisions": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decisions",
+            "description": "Key decisions made during the meeting (JSON array)"
+          },
+          "risks": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risks",
+            "description": "Identified risks and concerns (JSON array)"
+          },
+          "gap_assessment": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gap Assessment",
+            "description": "Assessment of gaps between expectations and reality"
+          },
+          "alignment_points": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Alignment Points",
+            "description": "Points of alignment between VC and founder (JSON array)"
+          },
+          "gantt_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gantt Status",
+            "description": "Status of Gantt chart alignment",
+            "examples": [
+              "on-track",
+              "delayed",
+              "ahead"
+            ]
+          },
+          "gantt_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gantt Notes",
+            "description": "Notes about Gantt chart progress"
+          },
+          "commitments": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commitments",
+            "description": "Commitments extracted from meeting (deprecated - use commitments endpoint)"
+          },
+          "vc_recommendations": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vc Recommendations",
+            "description": "VC's recommendations and advice (JSON array)"
+          },
+          "initiatives": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initiatives",
+            "description": "New initiatives discussed (JSON array)"
+          },
+          "financials_mentioned": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Financials Mentioned",
+            "description": "Financial metrics and discussions (JSON object)"
+          },
+          "sentiment": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 5.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment",
+            "description": "Overall sentiment score (1-5, where 1=very negative, 5=very positive)"
+          },
+          "sentiment_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sentiment Reason",
+            "description": "Explanation of the sentiment score"
+          },
+          "parsed_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parsed At",
+            "description": "Timestamp when AI parsing was completed"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At",
+            "description": "Record creation timestamp"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At",
+            "description": "Last update timestamp"
+          }
+        },
+        "type": "object",
+        "required": [
+          "meeting_date",
+          "raw_notes",
+          "id",
+          "company_id",
+          "created_at"
+        ],
+        "title": "MeetingRead"
+      },
+      "MeetingTestUploadResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether the upload was successful",
+            "examples": [
+              true
+            ]
+          },
+          "meetings_processed": {
+            "type": "integer",
+            "title": "Meetings Processed",
+            "description": "Number of meetings processed from the dump file",
+            "examples": [
+              3
+            ]
+          },
+          "results": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Results",
+            "description": "Results for each processed meeting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "meetings_processed",
+          "results"
+        ],
+        "title": "MeetingTestUploadResponse"
+      },
+      "MeetingUploadResponse": {
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "title": "Success",
+            "description": "Whether the upload was successful",
+            "examples": [
+              true
+            ]
+          },
+          "meeting_id": {
+            "type": "string",
+            "title": "Meeting Id",
+            "description": "UUID of the created meeting",
+            "examples": [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          },
+          "meeting_date": {
+            "type": "string",
+            "title": "Meeting Date",
+            "description": "Date of the meeting in ISO format",
+            "examples": [
+              "2024-03-15"
+            ]
+          },
+          "commitments_count": {
+            "type": "integer",
+            "title": "Commitments Count",
+            "description": "Number of commitments extracted from the meeting",
+            "examples": [
+              5
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "success",
+          "meeting_id",
+          "meeting_date",
+          "commitments_count"
+        ],
+        "title": "MeetingUploadResponse"
+      },
+      "PortfolioOverviewResponse": {
+        "properties": {
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioRow"
+            },
+            "type": "array",
+            "title": "Rows",
+            "description": "Portfolio company data"
+          },
+          "total_companies": {
+            "type": "integer",
+            "title": "Total Companies",
+            "description": "Total number of companies"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rows",
+          "total_companies"
+        ],
+        "title": "PortfolioOverviewResponse"
+      },
+      "PortfolioRow": {
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Company Id",
+            "description": "Company identifier"
+          },
+          "company_name": {
+            "type": "string",
+            "title": "Company Name",
+            "description": "Company name"
+          },
+          "company_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Status",
+            "description": "Company status",
+            "examples": [
+              "Active",
+              "Exited"
+            ]
+          },
+          "yet_to_start": {
+            "type": "integer",
+            "title": "Yet To Start",
+            "description": "Count of tasks not yet started",
+            "default": 0
+          },
+          "delayed": {
+            "type": "integer",
+            "title": "Delayed",
+            "description": "Count of delayed tasks",
+            "default": 0
+          },
+          "in_progress": {
+            "type": "integer",
+            "title": "In Progress",
+            "description": "Count of tasks in progress",
+            "default": 0
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done",
+            "description": "Count of completed tasks",
+            "default": 0
+          },
+          "done_but_delayed": {
+            "type": "integer",
+            "title": "Done But Delayed",
+            "description": "Count of tasks completed but delayed",
+            "default": 0
+          },
+          "total_tasks": {
+            "type": "integer",
+            "title": "Total Tasks",
+            "description": "Total task count",
+            "default": 0
+          },
+          "execution_speed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Execution Speed",
+            "description": "Execution speed KPI (0-100)"
+          },
+          "planning_depth": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Planning Depth",
+            "description": "Planning depth KPI (0-100)"
+          },
+          "shipping_velocity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipping Velocity",
+            "description": "Shipping velocity KPI (0-100)"
+          },
+          "has_snapshot": {
+            "type": "boolean",
+            "title": "Has Snapshot",
+            "description": "Whether company has any Gantt snapshots",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "company_id",
+          "company_name"
+        ],
+        "title": "PortfolioRow"
+      },
+      "TaskObject": {
+        "properties": {
+          "division": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Division",
+            "description": "Division/team owning the task",
+            "examples": [
+              "Product",
+              "Engineering",
+              "Marketing"
+            ]
+          },
+          "project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project",
+            "description": "Project name",
+            "examples": [
+              "User Dashboard",
+              "Mobile App"
+            ]
+          },
+          "task": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Task",
+            "description": "Task description",
+            "examples": [
+              "Implement authentication",
+              "Design mockups"
+            ]
+          },
+          "start_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start Date",
+            "description": "Task start date",
+            "examples": [
+              "2024-03-01"
+            ]
+          },
+          "end_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Date",
+            "description": "Task end date",
+            "examples": [
+              "2024-03-15"
+            ]
+          },
+          "duration_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Days",
+            "description": "Duration in days",
+            "examples": [
+              14
+            ]
+          },
+          "resource_1": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource 1",
+            "description": "Primary resource assigned",
+            "examples": [
+              "John Doe"
+            ]
+          },
+          "resource_2": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource 2",
+            "description": "Secondary resource assigned"
+          },
+          "resource_3": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resource 3",
+            "description": "Tertiary resource assigned"
+          },
+          "stage": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stage",
+            "description": "Current task stage",
+            "examples": [
+              "In Progress",
+              "Done",
+              "Delayed"
+            ]
+          },
+          "completion_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completion Date",
+            "description": "Actual completion date",
+            "examples": [
+              "2024-03-14"
+            ]
+          }
+        },
+        "type": "object",
+        "title": "TaskObject"
+      },
+      "TasksResponse": {
+        "properties": {
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskObject"
+            },
+            "type": "array",
+            "title": "Tasks"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "filters_applied": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Filters Applied"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tasks",
+          "total",
+          "filters_applied"
+        ],
+        "title": "TasksResponse"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type",
+            "default": "bearer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token"
+        ],
+        "title": "TokenResponse"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VelocityHistoryResponse": {
+        "properties": {
+          "company_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Company Id",
+            "description": "Company ID"
+          },
+          "history": {
+            "items": {
+              "$ref": "#/components/schemas/VelocityPoint"
+            },
+            "type": "array",
+            "title": "History",
+            "description": "Historical velocity data points"
+          }
+        },
+        "type": "object",
+        "required": [
+          "company_id",
+          "history"
+        ],
+        "title": "VelocityHistoryResponse"
+      },
+      "VelocityPoint": {
+        "properties": {
+          "upload_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Upload Date",
+            "description": "Date of the velocity measurement"
+          },
+          "shipping_velocity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Shipping Velocity",
+            "description": "Shipping velocity value (0-100)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "upload_date"
+        ],
+        "title": "VelocityPoint"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Health check endpoints for monitoring service availability."
+    },
+    {
+      "name": "auth",
+      "description": "Authentication endpoints for user login and token management."
+    },
+    {
+      "name": "companies",
+      "description": "Manage portfolio companies including creation, retrieval, updates, and deletion. Companies are the core entities in the system, representing portfolio investments."
+    },
+    {
+      "name": "gantt",
+      "description": "Gantt chart data management including pulling data from Google Sheets, computing KPIs (shipping velocity, execution speed, planning depth), generating diffs between snapshots, and providing portfolio overview analytics."
+    },
+    {
+      "name": "meetings",
+      "description": "Meeting notes management including DOCX upload, AI-powered parsing with Gemini, automatic commitment extraction, and meeting history retrieval. Meetings are parsed to extract summaries, decisions, risks, and actionable commitments."
+    },
+    {
+      "name": "commitments",
+      "description": "Commitment tracking and status management. Commitments are actionable items extracted from meetings with due dates, assignees, and automatic status updates (open, due-soon, overdue, resolved)."
+    }
+  ]
+}
