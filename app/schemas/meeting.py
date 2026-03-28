@@ -60,6 +60,10 @@ class MeetingRead(MeetingBase):
         None,
         description="Notes about Gantt chart progress"
     )
+    gantt_task_mentions: Optional[Any] = Field(
+        None,
+        description="Specific tasks/projects mentioned in the meeting with their status hints"
+    )
     commitments: Optional[Any] = Field(
         None,
         description="Commitments extracted from meeting (deprecated - use commitments endpoint)"
@@ -117,6 +121,14 @@ class MeetingUploadResponse(BaseModel):
         description="Number of commitments extracted from the meeting",
         examples=[5]
     )
+    suggestions_count: int = Field(
+        default=0,
+        description="Number of new Gantt task suggestions identified"
+    )
+    suggestions: list = Field(
+        default_factory=list,
+        description="New Gantt task suggestions for VC review"
+    )
 
 
 class MeetingTestUploadResponse(BaseModel):
@@ -130,4 +142,12 @@ class MeetingTestUploadResponse(BaseModel):
     )
     results: list[dict] = Field(
         description="Results for each processed meeting"
+    )
+    suggestions_count: int = Field(
+        default=0,
+        description="Total number of new Gantt task suggestions identified across all meetings"
+    )
+    suggestions: list = Field(
+        default_factory=list,
+        description="New Gantt task suggestions for VC review"
     )

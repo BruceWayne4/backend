@@ -8,6 +8,10 @@ engine = create_async_engine(
     pool_pre_ping=True,
     pool_size=10,
     max_overflow=20,
+    # Recycle connections every 5 minutes to avoid Neon's idle-connection
+    # timeout killing connections mid-transaction (e.g. during long Gemini calls).
+    pool_recycle=300,
+    pool_timeout=30,
 )
 
 AsyncSessionLocal = async_sessionmaker(

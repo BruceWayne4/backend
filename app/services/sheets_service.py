@@ -18,7 +18,8 @@ from app.config import settings
 
 log = logging.getLogger(__name__)
 
-SCOPES = ["https://www.googleapis.com/auth/spreadsheets.readonly"]
+# Read-write scope required for append_task_to_sheet()
+SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
 # Regex to strip "N - " numeric prefix from Excel stage labels
 # e.g. "1 - Yet to Start" → "Yet to Start", "3 - In Progress" → "In Progress"
@@ -305,3 +306,94 @@ def fetch_sheet_data(sheets_url: str) -> dict:
         "task_count": len(tasks),
         "scorecard_history": scorecard_history,
     }
+
+
+def append_task_to_sheet(sheets_url: str, task: dict) -> int:
+    """
+    Append a new task row to the Task_List tab of the Google Sheet.
+
+    Writes columns A–H only (the input columns):
+      A = division, B = project, C = task, D = start_date, E = end_date,
+      F = duration (blank — sheet formula computes), G = resource_1, H = resource_2
+
+    Columns J (stage) and K (completion_date) are formula-computed — left blank.
+
+    Args:
+        sheets_url: Google Sheets URL or spreadsheet ID
+        task: dict with keys: task, project, division, resource,
+              suggested_start_date (date|str|None), suggested_end_date (date|str|None)
+
+    Returns:
+        1-based row number of the appended row.
+
+    Raises:
+        HTTPException 503 if credentials not configured.
+        googleapiclient.errors.HttpError on Sheets API failure.
+    """
+    creds_file = settings.GOOGLE_CREDENTIALS_FILE
+    if not os.path.exists(creds_file):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Google credentials not configured",
+        )
+    creds = service_account.Credentials.from_service_account_file(
+        creds_file, scopes=SCOPES
+    )
+    service = build("sheets", "v4", credentials=creds, cache_discovery=False)
+    sheet_id = _extract_sheet_id(sheets_url)
+
+    def _fmt_date(d) -> str:
+        """Format date/str to MM/DD/YYYY for Sheets, or empty string."""
+        if d is None:
+            return ""
+        if hasattr(d, "strftime"):
+            return d.strftime("%m/%d/%Y")
+        # Already a string — return as-is
+        return str(d)
+
+    row_values = [
+        task.get("division") or "",
+        task.get("project") or "",
+        task.get("task") or "",
+        _fmt_date(task.get("suggested_start_date")),
+        _fmt_date(task.get("suggested_end_date")),
+        "",  # F: duration — formula-computed
+        task.get("resource") or "",
+        "",  # H: resource_2 — leave blank
+    ]
+
+    body = {
+        "values": [row_values],
+    }
+
+    result = (
+        service.spreadsheets()
+        .values()
+        .append(
+            spreadsheetId=sheet_id,
+            range="Task_List!A:H",
+            valueInputOption="USER_ENTERED",
+            insertDataOption="INSERT_ROWS",
+            body=body,
+        )
+        .execute()
+    )
+
+    # Parse the updated range to get the row number written
+    # updatedRange looks like "Task_List!A123:H123"
+    updated_range = result.get("updates", {}).get("updatedRange", "")
+    row_number = 0
+    try:
+        # Extract row number from range string like "Task_List!A123:H123"
+        import re as _re
+        match = _re.search(r"!A(\d+)", updated_range)
+        if match:
+            row_number = int(match.group(1))
+    except Exception:
+        pass
+
+    log.info(
+        "SHEETS_APPEND: task=%r written to row=%d (range=%s)",
+        task.get("task"), row_number, updated_range,
+    )
+    return row_number

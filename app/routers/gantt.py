@@ -12,6 +12,15 @@ from sqlalchemy import select, func
 from app.database import get_db
 from app.models.company import Company
 from app.models.gantt import GanttSnapshot
+from app.models.meeting import Meeting
+from app.models.gantt_suggestion import GanttTaskSuggestion
+from app.schemas.gantt_suggestion import (
+    GanttTaskSuggestionRead,
+    GanttTaskSuggestionList,
+    GanttTaskSuggestionUpdate,
+    BulkPushRequest,
+    BulkPushResponse,
+)
 from app.schemas.gantt import (
     GanttPullRequest,
     GanttPullResponse,
@@ -291,6 +300,186 @@ async def get_velocity_history(
     history = sorted(unique_seeded + db_points, key=lambda p: p.upload_date)
 
     return VelocityHistoryResponse(company_id=company_id, history=history)
+
+
+# ── Task Suggestion endpoints ─────────────────────────────────────────────────
+
+@router.get("/{company_id}/task-suggestions", response_model=GanttTaskSuggestionList)
+async def list_task_suggestions(
+    company_id: uuid.UUID,
+    status_filter: Optional[str] = Query(default="pending", alias="status"),
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    List Gantt task suggestions for a company.
+    Defaults to pending suggestions only. Pass ?status=all to see all.
+    """
+    await _get_company_or_404(company_id, db)
+
+    query = select(GanttTaskSuggestion).where(
+        GanttTaskSuggestion.company_id == company_id
+    )
+    if status_filter and status_filter != "all":
+        query = query.where(GanttTaskSuggestion.status == status_filter)
+
+    query = query.order_by(GanttTaskSuggestion.created_at.desc())
+    result = await db.execute(query)
+    suggestions = result.scalars().all()
+
+    return GanttTaskSuggestionList(
+        suggestions=list(suggestions),
+        total=len(suggestions),
+    )
+
+
+@router.patch("/{company_id}/task-suggestions/{suggestion_id}", response_model=GanttTaskSuggestionRead)
+async def update_task_suggestion(
+    company_id: uuid.UUID,
+    suggestion_id: uuid.UUID,
+    body: GanttTaskSuggestionUpdate,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    Update a task suggestion's fields or status (dismiss/restore).
+    """
+    await _get_company_or_404(company_id, db)
+
+    result = await db.execute(
+        select(GanttTaskSuggestion).where(
+            GanttTaskSuggestion.id == suggestion_id,
+            GanttTaskSuggestion.company_id == company_id,
+        )
+    )
+    suggestion = result.scalar_one_or_none()
+    if not suggestion:
+        raise HTTPException(status_code=404, detail="Suggestion not found")
+
+    update_data = body.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        setattr(suggestion, field, value)
+
+    await db.commit()
+    await db.refresh(suggestion)
+    return suggestion
+
+
+@router.post("/{company_id}/task-suggestions/bulk-push", response_model=BulkPushResponse)
+async def bulk_push_suggestions(
+    company_id: uuid.UUID,
+    body: BulkPushRequest,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    Push approved task suggestions to the company's Google Sheet.
+
+    Applies any field updates from the request body before pushing.
+    Marks successfully pushed suggestions as status='pushed'.
+    """
+    from app.services.sheets_service import append_task_to_sheet
+    from app.models.company import Company as CompanyModel
+
+    company = await _get_company_or_404(company_id, db)
+
+    # Need sheets_url from company record
+    company_result = await db.execute(
+        select(CompanyModel).where(CompanyModel.id == company_id)
+    )
+    company_obj = company_result.scalar_one_or_none()
+    if not company_obj or not company_obj.sheets_url:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Company has no Google Sheet URL configured",
+        )
+
+    pushed = 0
+    failed = 0
+    errors = []
+
+    for suggestion_id in body.suggestion_ids:
+        result = await db.execute(
+            select(GanttTaskSuggestion).where(
+                GanttTaskSuggestion.id == suggestion_id,
+                GanttTaskSuggestion.company_id == company_id,
+            )
+        )
+        suggestion = result.scalar_one_or_none()
+        if not suggestion:
+            errors.append({"id": str(suggestion_id), "error": "Not found"})
+            failed += 1
+            continue
+
+        # Apply any field updates from the request
+        if body.updates:
+            update_item = body.updates.get(str(suggestion_id))
+            if update_item:
+                for field, value in update_item.model_dump(exclude_unset=True).items():
+                    setattr(suggestion, field, value)
+
+        # Build task dict for sheet append
+        task_dict = {
+            "task": suggestion.task,
+            "project": suggestion.project,
+            "division": suggestion.division,
+            "resource": suggestion.resource,
+            "suggested_start_date": suggestion.suggested_start_date,
+            "suggested_end_date": suggestion.suggested_end_date,
+        }
+
+        try:
+            row_number = append_task_to_sheet(company_obj.sheets_url, task_dict)
+            suggestion.status = "pushed"
+            suggestion.pushed_at = datetime.now(timezone.utc)
+            suggestion.sheet_row_number = row_number
+            pushed += 1
+        except Exception as e:
+            errors.append({"id": str(suggestion_id), "task": suggestion.task, "error": str(e)})
+            failed += 1
+
+    await db.commit()
+
+    return BulkPushResponse(pushed=pushed, failed=failed, errors=errors)
+
+
+@router.get("/{company_id}/meeting-context")
+async def get_meeting_gantt_context(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    Return the most recent meeting's Gantt-related fields for a company.
+
+    Used by the frontend to annotate the task table with meeting signals
+    (gantt_status, gantt_notes, sentiment, gantt_task_mentions).
+
+    Returns 204 No Content if the company has no meetings yet.
+    """
+    await _get_company_or_404(company_id, db)
+
+    result = await db.execute(
+        select(Meeting)
+        .where(Meeting.company_id == company_id)
+        .order_by(Meeting.meeting_date.desc())
+        .limit(1)
+    )
+    meeting = result.scalar_one_or_none()
+
+    if meeting is None:
+        from fastapi import Response
+        return Response(status_code=204)
+
+    return {
+        "meeting_id": str(meeting.id),
+        "meeting_date": meeting.meeting_date.isoformat() if meeting.meeting_date else None,
+        "gantt_status": meeting.gantt_status,
+        "gantt_notes": meeting.gantt_notes,
+        "gantt_task_mentions": meeting.gantt_task_mentions or [],
+        "sentiment": meeting.sentiment,
+        "sentiment_reason": meeting.sentiment_reason,
+    }
 
 
 @router.get("/portfolio-overview", response_model=PortfolioOverviewResponse)

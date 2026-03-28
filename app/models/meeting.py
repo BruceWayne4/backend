@@ -26,6 +26,7 @@ class Meeting(Base):
     alignment_points: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     gantt_status: Mapped[str | None] = mapped_column(String(50), nullable=True)
     gantt_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    gantt_task_mentions: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     commitments: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     vc_recommendations: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     initiatives: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
@@ -34,6 +35,12 @@ class Meeting(Base):
     sentiment_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     
     # Metadata
+    granola_note_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    granola_updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+        comment="Granola note updated_at — used as updated_after cursor for incremental syncs"
+    )
+    sync_source: Mapped[str | None] = mapped_column(String(50), nullable=True)
     docx_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
     uploaded_by: Mapped[str | None] = mapped_column(String(100), nullable=True)
     parsed_at: Mapped[datetime | None] = mapped_column(

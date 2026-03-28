@@ -25,6 +25,24 @@ Extract the following fields from the meeting notes in JSON format:
   "alignment_points": ["what fund manager and founder explicitly agreed on"],
   "gantt_status": "on-track|delayed|off-track|not-discussed",
   "gantt_notes": "one sentence explanation of gantt status",
+  "gantt_task_mentions": [
+    {
+      "task_or_project": "exact task or project name as mentioned in the notes",
+      "status_hint": "delayed|at-risk|on-track|completed",
+      "note": "one sentence from the meeting about this specific task or project"
+    }
+  ],
+  "suggested_gantt_tasks": [
+    {
+      "task": "exact task name as discussed",
+      "project": "project or workstream name if mentioned, else null",
+      "division": "division if mentioned (Tech/Marketing/Ops/Product/HR/Finance), else null",
+      "resource": "person responsible if mentioned, else null",
+      "suggested_start_date": "YYYY-MM-DD or null",
+      "suggested_end_date": "YYYY-MM-DD or null",
+      "note": "one sentence from the meeting explaining why this task was raised"
+    }
+  ],
   "commitments": [
     {
       "person": "Founder 1|Founder 2|Aviral|Shubham|Anshu|Ankit",
@@ -50,6 +68,12 @@ Rules:
 - gap_assessment: extract from "Gap Assessment" and "Challenges" sections specifically
 - alignment_points: extract from "Alignment Points" section specifically
 - For person names, use the exact names as they appear in the text
+- gantt_task_mentions: extract ONLY tasks or projects explicitly named in the meeting notes as delayed, at-risk, on-track, or completed. Use the exact name as spoken. If no specific tasks are named, return an empty array [].
+- gantt_task_mentions status_hint must be one of: delayed, at-risk, on-track, completed
+- suggested_gantt_tasks: extract ONLY tasks explicitly discussed as NEW work to be planned — not existing tasks being updated or reviewed. These are tasks the team committed to starting or planning that are not yet underway.
+- Do NOT add a task to suggested_gantt_tasks if it is clearly already in progress, done, or being tracked.
+- suggested_start_date defaults to the meeting date if not explicitly mentioned.
+- Return [] for suggested_gantt_tasks if no genuinely new tasks were discussed.
 """
 
 
@@ -101,6 +125,8 @@ async def parse_meeting_with_gemini(raw_notes: str) -> Dict[str, Any]:
             "alignment_points": [],
             "gantt_status": "not-discussed",
             "gantt_notes": "",
+            "gantt_task_mentions": [],
+            "suggested_gantt_tasks": [],
             "commitments": [],
             "vc_recommendations": [],
             "initiatives": [],

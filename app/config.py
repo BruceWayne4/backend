@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/ajvc"
     GOOGLE_CREDENTIALS_FILE: str = "./credentials.json"
     GEMINI_API_KEY: str = ""
+    GRANOLA_API_KEY: str = ""
+    GRANOLA_API_BASE_URL: str = "https://public-api.granola.ai"
     JWT_SECRET: str = "change-me-in-production"
     ADMIN_PASSWORD: str = "ajvc2026"
     CORS_ORIGINS: str = "http://localhost:5173"

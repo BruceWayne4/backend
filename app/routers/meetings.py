@@ -14,6 +14,7 @@ from app.schemas.meeting import (
     MeetingTestUploadResponse
 )
 from app.services import docx_parser, gemini_parser
+from app.services.gantt_suggestion_service import persist_suggestions, suggestion_to_dict
 import uuid
 from datetime import datetime, date
 import os
@@ -91,6 +92,7 @@ async def upload_meeting_docx(
             alignment_points=ai_parsed.get('alignment_points'),
             gantt_status=ai_parsed.get('gantt_status'),
             gantt_notes=ai_parsed.get('gantt_notes'),
+            gantt_task_mentions=ai_parsed.get('gantt_task_mentions'),
             vc_recommendations=ai_parsed.get('vc_recommendations'),
             initiatives=ai_parsed.get('initiatives'),
             financials_mentioned=ai_parsed.get('financials_mentioned'),
@@ -116,16 +118,30 @@ async def upload_meeting_docx(
             )
             db.add(commitment)
             commitments_created.append(commitment)
-        
+
+        # Diff and persist Gantt task suggestions
+        new_suggestions = await persist_suggestions(
+            company_id=company_id,
+            meeting_id=meeting.id,
+            suggested_tasks=ai_parsed.get('suggested_gantt_tasks', []),
+            db=db,
+        )
+
         await db.commit()
         
-        logger.info(f"Meeting uploaded successfully. ID: {meeting.id}, Commitments: {len(commitments_created)}")
+        logger.info(
+            f"Meeting uploaded successfully. ID: {meeting.id}, "
+            f"Commitments: {len(commitments_created)}, "
+            f"Suggestions: {len(new_suggestions)}"
+        )
         
         return MeetingUploadResponse(
             success=True,
             meeting_id=str(meeting.id),
             meeting_date=str(meeting_data['date']),
-            commitments_count=len(commitments_created)
+            commitments_count=len(commitments_created),
+            suggestions_count=len(new_suggestions),
+            suggestions=[suggestion_to_dict(s) for s in new_suggestions],
         )
     
     finally:
@@ -161,6 +177,7 @@ async def upload_test_meeting_dump(
         meetings_data = docx_parser.parse_multi_meeting_docx(temp_path)
         
         results = []
+        all_suggestions = []
         for meeting_data in meetings_data:
             # Check if meeting already exists
             from sqlalchemy import select, delete
@@ -190,6 +207,7 @@ async def upload_test_meeting_dump(
                 existing_meeting.alignment_points = ai_parsed.get('alignment_points')
                 existing_meeting.gantt_status = ai_parsed.get('gantt_status')
                 existing_meeting.gantt_notes = ai_parsed.get('gantt_notes')
+                existing_meeting.gantt_task_mentions = ai_parsed.get('gantt_task_mentions')
                 existing_meeting.vc_recommendations = ai_parsed.get('vc_recommendations')
                 existing_meeting.initiatives = ai_parsed.get('initiatives')
                 existing_meeting.financials_mentioned = ai_parsed.get('financials_mentioned')
@@ -222,6 +240,7 @@ async def upload_test_meeting_dump(
                     alignment_points=ai_parsed.get('alignment_points'),
                     gantt_status=ai_parsed.get('gantt_status'),
                     gantt_notes=ai_parsed.get('gantt_notes'),
+                    gantt_task_mentions=ai_parsed.get('gantt_task_mentions'),
                     vc_recommendations=ai_parsed.get('vc_recommendations'),
                     initiatives=ai_parsed.get('initiatives'),
                     financials_mentioned=ai_parsed.get('financials_mentioned'),
@@ -247,12 +266,22 @@ async def upload_test_meeting_dump(
                 )
                 db.add(commitment)
                 commitment_count += 1
-            
+
+            # Diff and persist Gantt task suggestions
+            meeting_suggestions = await persist_suggestions(
+                company_id=company_id,
+                meeting_id=meeting.id,
+                suggested_tasks=ai_parsed.get('suggested_gantt_tasks', []),
+                db=db,
+            )
+
             results.append({
                 'meeting_id': str(meeting.id),
                 'date': str(meeting_data['date']),
-                'commitments_count': commitment_count
+                'commitments_count': commitment_count,
+                'suggestions_count': len(meeting_suggestions),
             })
+            all_suggestions.extend([suggestion_to_dict(s) for s in meeting_suggestions])
         
         await db.commit()
         
@@ -261,7 +290,9 @@ async def upload_test_meeting_dump(
         return MeetingTestUploadResponse(
             success=True,
             meetings_processed=len(results),
-            results=results
+            results=results,
+            suggestions_count=len(all_suggestions),
+            suggestions=all_suggestions,
         )
     
     finally:
@@ -305,3 +336,100 @@ async def get_meeting(
             detail="Meeting not found"
         )
     return meeting
+
+
+@router.post("/companies/{company_id}/meetings/sync-from-granola")
+async def sync_company_from_granola(
+    company_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sync all meetings for a company from Granola API.
+    
+    Fetches meeting notes from Granola, parses with Gemini AI,
+    and stores in database with proper linkage.
+    """
+    from app.models.company import Company
+    from app.database import AsyncSessionLocal
+    from app.services.meeting_sync_service import sync_company_meetings
+    
+    # Get company name (use the request-scoped session just for this lookup)
+    company = await db.get(Company, company_id)
+    if not company:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Company not found"
+        )
+    
+    # Sync meetings — each note gets its own fresh session via AsyncSessionLocal
+    result = await sync_company_meetings(
+        company.name, company_id, db_session_factory=AsyncSessionLocal
+    )
+    
+    return {
+        "success": result.success,
+        "company_name": result.company_name,
+        "notes_processed": result.notes_processed,
+        "notes_skipped": result.notes_skipped,
+        "notes_failed": result.notes_failed,
+        "errors": result.errors,
+        "duration_seconds": result.duration_seconds,
+        "suggestions_count": result.suggestions_count,
+        "suggestions": result.suggestions,
+    }
+
+
+@router.post("/meetings/sync-all-from-granola")
+async def sync_all_from_granola(
+    company_ids: list[uuid.UUID],
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sync meetings for multiple companies from Granola API in parallel.
+    
+    Processes up to 5 companies concurrently with rate limiting.
+    """
+    from app.models.company import Company
+    from app.database import AsyncSessionLocal
+    from app.services.meeting_sync_service import sync_all_companies_parallel
+    
+    # Get company names
+    companies = []
+    for company_id in company_ids:
+        company = await db.get(Company, company_id)
+        if company:
+            companies.append({
+                'id': str(company_id),
+                'name': company.name
+            })
+    
+    # Sync in parallel
+    results = await sync_all_companies_parallel(
+        companies,
+        AsyncSessionLocal,
+        max_concurrent=5
+    )
+    
+    # Aggregate results
+    total_processed = sum(r.notes_processed for r in results if hasattr(r, 'notes_processed'))
+    total_failed = sum(r.notes_failed for r in results if hasattr(r, 'notes_failed'))
+    total_skipped = sum(r.notes_skipped for r in results if hasattr(r, 'notes_skipped'))
+    
+    return {
+        "success": all(r.success for r in results if hasattr(r, 'success')),
+        "companies_processed": len(results),
+        "total_notes_processed": total_processed,
+        "total_notes_skipped": total_skipped,
+        "total_notes_failed": total_failed,
+        "results": [
+            {
+                "company_name": r.company_name,
+                "success": r.success,
+                "notes_processed": r.notes_processed,
+                "notes_skipped": r.notes_skipped,
+                "notes_failed": r.notes_failed,
+                "duration_seconds": r.duration_seconds
+            }
+            for r in results if hasattr(r, 'company_name')
+        ]
+    }
