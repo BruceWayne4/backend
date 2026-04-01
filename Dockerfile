@@ -22,8 +22,9 @@ RUN uv sync --frozen --no-dev --no-install-project
 COPY . .
 RUN uv sync --frozen --no-dev
 
-# Make entrypoint executable
-RUN chmod +x /app/docker-entrypoint.sh
+# Write entrypoint inline so it's always present regardless of source delivery
+RUN printf '#!/bin/sh\nset -e\necho "==> Running Alembic migrations..."\nuv run alembic upgrade head\necho "==> Starting uvicorn on port ${PORT:-8000} (log-level: ${LOG_LEVEL:-info})..."\nexec uv run uvicorn app.main:app --host 0.0.0.0 --port "${PORT:-8000}" --log-level "${LOG_LEVEL:-info}"\n' > /app/docker-entrypoint.sh \
+    && chmod +x /app/docker-entrypoint.sh
 
 # Expose configurable port (default 8000)
 EXPOSE ${PORT:-8000}
