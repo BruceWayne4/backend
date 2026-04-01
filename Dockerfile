@@ -9,15 +9,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy and install Python dependencies first (layer caching)
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install uv (fast Python package manager)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-# Copy application code
+# ── Layer-cache optimisation ──────────────────────────────────────────────────
+# Copy manifests only; install third-party deps without the project package.
+# This layer is rebuilt only when pyproject.toml / uv.lock change.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+# ── Copy source and install the project itself ────────────────────────────────
 COPY . .
+RUN uv sync --frozen --no-dev
 
-# Expose port
-EXPOSE 8000
+# Make entrypoint executable
+RUN chmod +x /app/docker-entrypoint.sh
 
-# Run the FastAPI app with uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Expose configurable port (default 8000)
+EXPOSE ${PORT:-8000}
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]

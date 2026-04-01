@@ -18,6 +18,10 @@ class Settings(BaseSettings):
     ADMIN_PASSWORD: str = "ajvc2026"
     CORS_ORIGINS: str = "http://localhost:5173"
 
+    # ── Server tunables (used by docker-entrypoint.sh / uvicorn) ─────────────
+    PORT: int = 8000
+    LOG_LEVEL: str = "info"
+
     @property
     def cors_origins_list(self) -> List[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",")]
