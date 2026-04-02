@@ -158,13 +158,12 @@ def compute_metrics_from_tasks(tasks: list[dict], today: Optional[date] = None) 
         if stage in stage_counts:
             stage_counts[stage] += 1
 
-    log.warning(
-        "METRICS DEBUG: total=%d window=%s..%s unparseable=%d out_of_window=%d stage_counts=%s",
+    log.debug(
+        "METRICS: total=%d window=%s..%s unparseable=%d out_of_window=%d stage_counts=%s",
         len(tasks), window_start, window_end, unparseable_dates, out_of_window, stage_counts,
     )
-    # Log first 3 task start dates so we can see the format
     for t in tasks[:3]:
-        log.warning("SAMPLE start_date=%r  end_date=%r  stage=%r", t.get("start_date"), t.get("end_date"), t.get("stage"))
+        log.debug("SAMPLE start_date=%r  end_date=%r  stage=%r", t.get("start_date"), t.get("end_date"), t.get("stage"))
 
     total_in_window = sum(stage_counts.values())
     if total_in_window == 0:

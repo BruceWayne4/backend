@@ -74,6 +74,12 @@ async def bulk_pull_all_gantt(
     Iterates all companies, calls fetch_central_sheet_data() for each,
     and saves a new GanttSnapshot. Returns a summary of results.
 
+    Memory management:
+    - Overall_Gantt metrics tab is fetched ONCE before the loop (not per-company).
+    - Each company's snapshot is committed and expunged immediately so the
+      SQLAlchemy session never accumulates all snapshots in memory at once.
+    - On per-company failure the session is rolled back before continuing.
+
     Returns:
         {
             "pulled": int,
@@ -81,7 +87,10 @@ async def bulk_pull_all_gantt(
             "results": [{"company_id": str, "company_name": str, "status": "ok"|"error", "error": str|None, "task_count": int}]
         }
     """
+    import logging as _logging
     from app.config import settings as _settings
+
+    _log = _logging.getLogger(__name__)
 
     if not _settings.GANTT_SPREADSHEET_ID:
         raise HTTPException(
@@ -89,25 +98,43 @@ async def bulk_pull_all_gantt(
             detail="GANTT_SPREADSHEET_ID not configured — bulk pull requires central spreadsheet mode",
         )
 
-    # Fetch all companies
-    companies_result = await db.execute(select(Company).order_by(Company.name))
-    companies = companies_result.scalars().all()
+    # ── Pre-fetch Overall_Gantt metrics ONCE for all companies ───────────────
+    # fetch_central_sheet_data() normally calls fetch_overall_metrics() internally
+    # for every company, re-reading the entire summary tab each time.
+    # We fetch it once here and pass it through to avoid N redundant API calls.
+    try:
+        overall_metrics = sheets_service.fetch_overall_metrics()
+        _log.info("BULK_PULL: pre-fetched overall metrics for %d companies", len(overall_metrics))
+    except Exception as e:
+        _log.warning("BULK_PULL: could not pre-fetch overall metrics: %s — will fetch per-company", e)
+        overall_metrics = None
+
+    # Fetch only id + name — avoid loading full ORM objects for all companies
+    companies_result = await db.execute(
+        select(Company.id, Company.name).order_by(Company.name)
+    )
+    companies = companies_result.all()  # list of (id, name) Row objects
 
     pulled = 0
     failed = 0
     results = []
+    today = date.today()
 
-    for company in companies:
+    for company_id, company_name in companies:
         try:
-            raw_data = sheets_service.fetch_central_sheet_data(company.name)
+            # Pass pre-fetched metrics to skip redundant Overall_Gantt re-read
+            raw_data = sheets_service.fetch_central_sheet_data(
+                company_name,
+                _prefetched_metrics=overall_metrics,
+            )
             parsed = gantt_service.parse_sheet_data(raw_data)
 
-            prev_snapshot = await _get_latest_snapshot(company.id, db)
+            prev_snapshot = await _get_latest_snapshot(company_id, db)
             diff_result = gantt_service.diff_snapshots(prev_snapshot, parsed["tasks"])
 
             snapshot = GanttSnapshot(
-                company_id=company.id,
-                upload_date=date.today(),
+                company_id=company_id,
+                upload_date=today,
                 tasks=parsed["tasks"],
                 shipping_velocity=parsed["shipping_velocity"],
                 execution_speed=parsed["execution_speed"],
@@ -118,38 +145,53 @@ async def bulk_pull_all_gantt(
                 scorecard_history=parsed.get("scorecard_history") or None,
             )
             db.add(snapshot)
-            await db.flush()
+
+            # Commit + expunge immediately — releases task JSON from session memory.
+            # Without this, all N snapshots accumulate in the identity map until the
+            # final commit, causing OOM on large portfolios.
+            await db.commit()
+            db.expunge(snapshot)
+            if prev_snapshot is not None:
+                try:
+                    db.expunge(prev_snapshot)
+                except Exception:
+                    pass  # already detached is fine
 
             pulled += 1
             results.append({
-                "company_id": str(company.id),
-                "company_name": company.name,
+                "company_id": str(company_id),
+                "company_name": company_name,
                 "status": "ok",
                 "task_count": parsed["task_count"],
                 "error": None,
             })
+            _log.info("BULK_PULL: ✓ %s (%d tasks)", company_name, parsed["task_count"])
+
         except HTTPException as e:
             # 404 = no tab found for this company in the spreadsheet — skip silently
             failed += 1
             results.append({
-                "company_id": str(company.id),
-                "company_name": company.name,
+                "company_id": str(company_id),
+                "company_name": company_name,
                 "status": "error",
                 "task_count": 0,
                 "error": e.detail,
             })
+            _log.info("BULK_PULL: ✗ %s — %s", company_name, e.detail)
         except Exception as e:
+            # Roll back any partial write for this company before continuing
+            await db.rollback()
             failed += 1
             results.append({
-                "company_id": str(company.id),
-                "company_name": company.name,
+                "company_id": str(company_id),
+                "company_name": company_name,
                 "status": "error",
                 "task_count": 0,
                 "error": str(e),
             })
+            _log.warning("BULK_PULL: ✗ %s — %s", company_name, e)
 
-    await db.commit()
-
+    _log.info("BULK_PULL: complete — pulled=%d failed=%d", pulled, failed)
     return {
         "pulled": pulled,
         "failed": failed,

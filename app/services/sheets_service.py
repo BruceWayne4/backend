@@ -28,9 +28,11 @@ Both modes share the same append_task_to_sheet() for writing suggestions back.
 import logging
 import os
 import re
+import time
 from datetime import date, timedelta
 from typing import Optional
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from google.oauth2 import service_account
 from fastapi import HTTPException, status
 from app.config import settings
@@ -56,6 +58,32 @@ def _get_service():
         creds_file.strip(), scopes=SCOPES
     )
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
+
+
+def _sheets_get_with_retry(request, max_retries: int = 3) -> dict:
+    """
+    Execute a Google Sheets API read request with exponential backoff on HTTP 429.
+
+    Retries up to `max_retries` times with delays of 1s, 2s, 4s before giving up.
+    All other errors are re-raised immediately.
+    """
+    delay = 1.0
+    last_exc: Exception = RuntimeError("_sheets_get_with_retry: no attempts made")
+    for attempt in range(max_retries + 1):
+        try:
+            return request.execute()
+        except HttpError as e:
+            last_exc = e
+            if e.resp.status == 429 and attempt < max_retries:
+                log.warning(
+                    "SHEETS_RETRY: HTTP 429 rate-limited, retrying in %.0fs (attempt %d/%d)",
+                    delay, attempt + 1, max_retries,
+                )
+                time.sleep(delay)
+                delay *= 2
+            else:
+                raise
+    raise last_exc  # unreachable in practice; satisfies type checkers
 
 
 def _extract_sheet_id(sheets_url: str) -> str:
@@ -137,6 +165,11 @@ def _parse_central_date(val) -> Optional[str]:
     """
     Parse date strings from the central Gantt_Overall spreadsheet.
     Dates are stored as human-readable strings like "Jan 20, 2025" or "Feb 10, 2025".
+    Also handles:
+      - "8-Apr-2026"   (D-Mon-YYYY, no leading zero)
+      - "April 7 2026" (full month name + day + year)
+      - "Mar 9"        (abbreviated month + day, no year — year inferred)
+      - "Apr 15"       (same)
     Returns ISO date string (YYYY-MM-DD) or None.
     """
     if val is None or val == "":
@@ -151,6 +184,9 @@ def _parse_central_date(val) -> Optional[str]:
         "%b %d, %Y",   # "Jan 20, 2025"
         "%B %d, %Y",   # "January 20, 2025"
         "%b %d %Y",    # "Jan 20 2025"
+        "%B %d %Y",    # "January 20 2025"  / "April 7 2026"
+        "%d-%b-%Y",    # "8-Apr-2026"  (day-MonAbbr-year, no leading zero handled by %d)
+        "%d-%B-%Y",    # "8-April-2026" (day-FullMonth-year)
         "%m/%d/%Y",    # "01/20/2025"
         "%m/%d/%y",    # "01/20/25"
         "%Y-%m-%d",    # "2025-01-20"
@@ -159,6 +195,28 @@ def _parse_central_date(val) -> Optional[str]:
     for fmt in formats:
         try:
             return _dt.strptime(val, fmt).date().isoformat()
+        except ValueError:
+            continue
+
+    # Partial date: "Mar 9" / "Apr 15" / "Jun 14" — month + day, no year.
+    # Infer the year: use the current year; if the resulting date is more than
+    # 6 months in the past, bump to next year (avoids stale dates for future tasks).
+    partial_formats = [
+        "%b %d",   # "Mar 9", "Apr 15"
+        "%B %d",   # "March 9", "April 15"
+        "%b %-d",  # same but explicit no-padding (Linux only; harmless fallback)
+    ]
+    for fmt in partial_formats:
+        try:
+            parsed = _dt.strptime(val, fmt)
+            today = date.today()
+            # Try current year first
+            candidate = parsed.replace(year=today.year).date()
+            # If candidate is more than ~180 days in the past, use next year
+            if (today - candidate).days > 180:
+                candidate = parsed.replace(year=today.year + 1).date()
+            log.debug("CENTRAL_DATE: partial %r → %r (inferred year)", val, candidate.isoformat())
+            return candidate.isoformat()
         except ValueError:
             continue
 
@@ -266,7 +324,10 @@ def fetch_overall_metrics() -> dict:
     return metrics
 
 
-def fetch_central_sheet_data(company_name: str) -> dict:
+def fetch_central_sheet_data(
+    company_name: str,
+    _prefetched_metrics: Optional[dict] = None,
+) -> dict:
     """
     Fetch and parse data for a single company from the central Gantt_Overall spreadsheet.
 
@@ -306,15 +367,21 @@ def fetch_central_sheet_data(company_name: str) -> dict:
     # Use FORMATTED_VALUE so dates come back as human-readable strings
     # (e.g. "Jan 20, 2025") which _parse_central_date() handles.
     try:
-        task_result = (
-            spreadsheet.values()
-            .get(
+        task_result = _sheets_get_with_retry(
+            spreadsheet.values().get(
                 spreadsheetId=sheet_id,
                 range=f"'{company_name}'",
                 valueRenderOption="FORMATTED_VALUE",
             )
-            .execute()
         )
+    except HttpError as e:
+        if e.resp.status == 404:
+            log.error("CENTRAL_FETCH: tab not found for %r: %s", company_name, e)
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"No sheet tab found for company '{company_name}' in central spreadsheet",
+            )
+        raise
     except Exception as e:
         log.error("CENTRAL_FETCH: failed to read tab %r: %s", company_name, e)
         raise HTTPException(
@@ -389,7 +456,13 @@ def fetch_central_sheet_data(company_name: str) -> dict:
     planning_depth: Optional[float] = None
 
     try:
-        all_metrics = fetch_overall_metrics()
+        # Use pre-fetched metrics when available (bulk-pull passes these in to
+        # avoid re-reading the Overall_Gantt tab once per company).
+        all_metrics = (
+            _prefetched_metrics
+            if _prefetched_metrics is not None
+            else fetch_overall_metrics()
+        )
         company_metrics = all_metrics.get(company_name)
         if company_metrics:
             shipping_velocity = company_metrics.get("shipping_velocity")
