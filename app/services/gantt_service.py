@@ -207,12 +207,16 @@ def parse_sheet_data(raw_data: dict) -> dict:
     Takes raw data returned by sheets_service.fetch_sheet_data() and returns
     a structured dict ready to be stored in a GanttSnapshot.
 
-    Priority order for metrics:
-      1. Sheet formula values (N1/N3/N4) — authoritative; computed by the sheet
-         using its own TODAY() anchor (cell N6).
-      2. Server-computed values — fallback only when sheet cells are blank/missing,
-         using sheet_today (N6 serial) as the date anchor so the window matches.
-    Stage computation always uses sheet_today so task stages match the sheet.
+    Stage:
+      Always taken directly from the spreadsheet (col J). The Stage column is
+      a manually-set dropdown — it is the single authoritative source.
+      Server-side recomputation is NOT performed.
+
+    Metrics (Execution Speed, Planning Depth, Shipping Velocity):
+      1. Server-computed (primary) — uses sheet_today anchor from N6 so the
+         ±90-day window matches the sheet exactly.
+      2. Sheet formula values (N1/N3/N4) — fallback only when server computation
+         returns None (e.g. zero tasks fall inside the window).
     """
     tasks: list[dict] = raw_data.get("tasks", [])
     scorecard_history: list[dict] = raw_data.get("scorecard_history", [])
@@ -231,39 +235,18 @@ def parse_sheet_data(raw_data: dict) -> dict:
         except ValueError:
             log.warning("PARSE: could not parse sheet_today=%r, falling back to server today", raw_sheet_today)
 
-    # ── 1. Compute stage for every task using sheet's TODAY() anchor ──────────
-    stage_computed_count = 0
-    stage_fallback_count = 0
-    for task in tasks:
-        sheet_stage = task.get("stage")
-        computed = compute_stage(
-            division=task.get("division"),
-            start_date_str=task.get("start_date"),
-            end_date_str=task.get("end_date"),
-            completion_date_str=task.get("completion_date"),
-            today=today,
-        )
-        if computed is not None:
-            task["stage"] = computed
-            stage_computed_count += 1
-        else:
-            stage_fallback_count += 1
-            log.debug(
-                "STAGE_FALLBACK: task=%r start=%r end=%r keeping sheet_stage=%r",
-                task.get("task"), task.get("start_date"), task.get("end_date"), sheet_stage,
-            )
+    # ── 1. Stage — always use the spreadsheet value (col J) ──────────────────
+    # The Stage column is the single authoritative source. It is manually set by
+    # the user via a dropdown in the central Gantt_Overall spreadsheet.
+    # Server-side recomputation is NOT performed — it would incorrectly override
+    # user-set stages because the central sheet has no completion date column.
+    log.info("PARSE: using spreadsheet stage values for all %d tasks (no server override)", len(tasks))
 
-    log.info(
-        "PARSE: stages — computed=%d fallback_to_sheet=%d",
-        stage_computed_count, stage_fallback_count,
-    )
-
-    # ── 2. Always compute server-side; sheet formula values are last-resort only ─
-    # Sheet cells N1/N3/N4 may reflect a stale TODAY() anchor or Excel quirks.
-    # Server computation uses the verified sheet_today anchor and freshly
-    # recomputed stages, so it is always the authoritative source.
-    # Sheet formula values are kept only as a safety net when server computation
-    # returns None (e.g. zero tasks fall inside the window).
+    # ── 2. Metrics — server-computed (primary); sheet N1/N3/N4 as fallback ────
+    # Server computation uses the sheet_today anchor (N6) so the ±90-day window
+    # matches the sheet exactly. Sheet formula values (N1/N3/N4) are kept only
+    # as a safety net when server computation returns None (e.g. zero tasks fall
+    # inside the window).
     sheet_sv = raw_data.get("shipping_velocity")
     sheet_es = raw_data.get("execution_speed")
     sheet_pd = raw_data.get("planning_depth")
