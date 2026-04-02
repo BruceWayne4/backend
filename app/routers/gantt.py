@@ -67,18 +67,24 @@ async def pull_gantt(
     db: AsyncSession = Depends(get_db),
     _: TokenData = Depends(get_current_user),
 ):
+    from app.config import settings
+
     company = await _get_company_or_404(company_id, db)
 
-    # Resolve sheets URL
-    sheets_url = body.sheets_url or company.sheets_url
-    if not sheets_url:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="No sheets_url provided and company has no sheets_url configured",
-        )
-
-    # Fetch raw data from Google Sheets
-    raw_data = sheets_service.fetch_sheet_data(sheets_url)
+    # ── Choose fetch strategy ─────────────────────────────────────────────────
+    # If GANTT_SPREADSHEET_ID is configured, use the central Gantt_Overall
+    # spreadsheet and look up the company's tab by its name.
+    # Otherwise fall back to the legacy per-company sheets_url.
+    if settings.GANTT_SPREADSHEET_ID:
+        raw_data = sheets_service.fetch_central_sheet_data(company.name)
+    else:
+        sheets_url = body.sheets_url or company.sheets_url
+        if not sheets_url:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="No sheets_url provided and company has no sheets_url configured",
+            )
+        raw_data = sheets_service.fetch_sheet_data(sheets_url)
 
     # Parse into structured form
     parsed = gantt_service.parse_sheet_data(raw_data)
@@ -378,21 +384,27 @@ async def bulk_push_suggestions(
     Applies any field updates from the request body before pushing.
     Marks successfully pushed suggestions as status='pushed'.
     """
-    from app.services.sheets_service import append_task_to_sheet
+    from app.config import settings as _settings
+    from app.services.sheets_service import append_task_to_sheet, append_task_to_central_sheet
     from app.models.company import Company as CompanyModel
 
     company = await _get_company_or_404(company_id, db)
 
-    # Need sheets_url from company record
-    company_result = await db.execute(
-        select(CompanyModel).where(CompanyModel.id == company_id)
-    )
-    company_obj = company_result.scalar_one_or_none()
-    if not company_obj or not company_obj.sheets_url:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Company has no Google Sheet URL configured",
+    # Determine write target: central spreadsheet or per-company sheet
+    use_central = bool(_settings.GANTT_SPREADSHEET_ID)
+    company_obj = None  # only populated in legacy mode
+
+    if not use_central:
+        # Legacy mode: need sheets_url from company record
+        company_result = await db.execute(
+            select(CompanyModel).where(CompanyModel.id == company_id)
         )
+        company_obj = company_result.scalar_one_or_none()
+        if not company_obj or not company_obj.sheets_url:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Company has no Google Sheet URL configured",
+            )
 
     pushed = 0
     failed = 0
@@ -429,7 +441,11 @@ async def bulk_push_suggestions(
         }
 
         try:
-            row_number = append_task_to_sheet(company_obj.sheets_url, task_dict)
+            if use_central:
+                row_number = append_task_to_central_sheet(company.name, task_dict)
+            else:
+                assert company_obj is not None  # guaranteed by pre-loop check
+                row_number = append_task_to_sheet(company_obj.sheets_url, task_dict)
             suggestion.status = "pushed"
             suggestion.pushed_at = datetime.now(timezone.utc)
             suggestion.sheet_row_number = row_number

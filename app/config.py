@@ -7,15 +7,30 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",  # silently ignore unknown env vars (e.g. BACKEND_PORT from docker-compose)
     )
 
-    DATABASE_URL: str = "postgresql+asyncpg://user:password@localhost:5432/ajvc"
-    GOOGLE_CREDENTIALS_FILE: str = "./credentials.json"
+    # ── Database ──────────────────────────────────────────────────────────────
+    DATABASE_URL: str
+
+    # ── Google / Gemini ───────────────────────────────────────────────────────
+    GOOGLE_CREDENTIALS_FILE: str
     GEMINI_API_KEY: str = ""
+
+    # ── Central Gantt spreadsheet (Gantt_Overall) ─────────────────────────────
+    # Set to the spreadsheet ID or full URL. When set, Gantt pulls use
+    # per-company tab names instead of per-company sheets_url fields.
+    GANTT_SPREADSHEET_ID: str = ""
+
+    # ── Granola ───────────────────────────────────────────────────────────────
     GRANOLA_API_KEY: str = ""
     GRANOLA_API_BASE_URL: str = "https://public-api.granola.ai"
-    JWT_SECRET: str = "change-me-in-production"
-    ADMIN_PASSWORD: str = "ajvc2026"
+
+    # ── Auth ──────────────────────────────────────────────────────────────────
+    JWT_SECRET: str
+    ADMIN_PASSWORD: str
+
+    # ── CORS ──────────────────────────────────────────────────────────────────
     CORS_ORIGINS: str = "http://localhost:5173"
 
     # ── Server tunables (used by docker-entrypoint.sh / uvicorn) ─────────────
