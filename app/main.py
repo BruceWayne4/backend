@@ -13,7 +13,7 @@ from app.auth.jwt import (
     login as do_login,
     get_current_user,
 )
-from app.routers import companies, gantt, meetings, commitments
+from app.routers import companies, gantt, meetings, commitments, gtm
 
 # OpenAPI Tags Metadata
 tags_metadata = [
@@ -125,6 +125,7 @@ app.include_router(companies.router, prefix="/api/v1")
 app.include_router(gantt.router, prefix="/api/v1")
 app.include_router(meetings.router, prefix="/api/v1")
 app.include_router(commitments.router, prefix="/api/v1")
+app.include_router(gtm.router, prefix="/api/v1")
 
 
 # ── Health check ─────────────────────────────────────────────────────────────
