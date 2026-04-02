@@ -166,8 +166,11 @@ def _parse_central_date(val) -> Optional[str]:
     Parse date strings from the central Gantt_Overall spreadsheet.
     Dates are stored as human-readable strings like "Jan 20, 2025" or "Feb 10, 2025".
     Also handles:
-      - "8-Apr-2026"   (D-Mon-YYYY, no leading zero)
+      - "11 Apr 2026"  (DD Mon YYYY, day-first no comma)
+      - "8-Apr-2026"   (D-Mon-YYYY, hyphen-separated)
       - "April 7 2026" (full month name + day + year)
+      - "Dec 1 ,2025"  (irregular comma spacing — normalised before parsing)
+      - "Dec 15 , 2025" (same)
       - "Mar 9"        (abbreviated month + day, no year — year inferred)
       - "Apr 15"       (same)
     Returns ISO date string (YYYY-MM-DD) or None.
@@ -178,13 +181,21 @@ def _parse_central_date(val) -> Optional[str]:
     if not val:
         return None
 
-    # Try common date formats used in the central sheet
     from datetime import datetime as _dt
+    import re as _re
+
+    # Normalise irregular comma spacing: "Dec 1 ,2025" / "Dec 15 , 2025"
+    # → "Dec 1, 2025"  (collapse any spaces around a comma into ", ")
+    val_norm = _re.sub(r"\s*,\s*", ", ", val).strip()
+
+    # Try common date formats used in the central sheet
     formats = [
         "%b %d, %Y",   # "Jan 20, 2025"
         "%B %d, %Y",   # "January 20, 2025"
         "%b %d %Y",    # "Jan 20 2025"
         "%B %d %Y",    # "January 20 2025"  / "April 7 2026"
+        "%d %b %Y",    # "11 Apr 2026"  (day first, no comma)
+        "%d %B %Y",    # "11 April 2026"
         "%d-%b-%Y",    # "8-Apr-2026"  (day-MonAbbr-year, no leading zero handled by %d)
         "%d-%B-%Y",    # "8-April-2026" (day-FullMonth-year)
         "%m/%d/%Y",    # "01/20/2025"
@@ -192,11 +203,12 @@ def _parse_central_date(val) -> Optional[str]:
         "%Y-%m-%d",    # "2025-01-20"
         "%d/%m/%Y",    # "20/01/2025"
     ]
-    for fmt in formats:
-        try:
-            return _dt.strptime(val, fmt).date().isoformat()
-        except ValueError:
-            continue
+    for candidate_val in (val_norm, val) if val_norm != val else (val,):
+        for fmt in formats:
+            try:
+                return _dt.strptime(candidate_val, fmt).date().isoformat()
+            except ValueError:
+                continue
 
     # Partial date: "Mar 9" / "Apr 15" / "Jun 14" — month + day, no year.
     # Infer the year: use the current year; if the resulting date is more than
