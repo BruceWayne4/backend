@@ -423,7 +423,7 @@ async def get_tasks(
         return TasksResponse(
             tasks=[],
             total=0,
-            filters_applied={"division": division, "stage": stage, "date_window": date_window},
+            filters_applied={"division": division, "stage": stage, "date_window": str(date_window)},
         )
 
     tasks: list[dict] = snapshot.tasks
@@ -457,7 +457,7 @@ async def get_tasks(
     return TasksResponse(
         tasks=task_objects,
         total=len(task_objects),
-        filters_applied={"division": division, "stage": stage, "date_window": date_window},
+        filters_applied={"division": division, "stage": stage, "date_window": str(date_window)},
     )
 
 
