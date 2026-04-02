@@ -46,14 +46,14 @@ _STAGE_PREFIX_RE = re.compile(r"^\d+\s*-\s*")
 
 
 def _get_service():
-    creds_file = settings.GOOGLE_CREDENTIALS_FILE
+    creds_file = settings.GOOGLE_CREDENTIALS_FILE.strip()
     if not os.path.exists(creds_file):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Google credentials not configured",
         )
     creds = service_account.Credentials.from_service_account_file(
-        creds_file, scopes=SCOPES
+        creds_file.strip(), scopes=SCOPES
     )
     return build("sheets", "v4", credentials=creds, cache_discovery=False)
 
@@ -619,7 +619,7 @@ def append_task_to_sheet(sheets_url: str, task: dict) -> int:
         HTTPException 503 if credentials not configured.
         googleapiclient.errors.HttpError on Sheets API failure.
     """
-    creds_file = settings.GOOGLE_CREDENTIALS_FILE
+    creds_file = settings.GOOGLE_CREDENTIALS_FILE.strip()
     if not os.path.exists(creds_file):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -701,7 +701,7 @@ def append_task_to_central_sheet(company_name: str, task: dict) -> int:
     Returns:
         1-based row number of the appended row.
     """
-    creds_file = settings.GOOGLE_CREDENTIALS_FILE
+    creds_file = settings.GOOGLE_CREDENTIALS_FILE.strip()
     if not os.path.exists(creds_file):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
