@@ -3,7 +3,7 @@ Gantt endpoints — /api/v1/gantt
 """
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -59,6 +59,206 @@ async def _get_latest_snapshot(
     )
     return result.scalar_one_or_none()
 
+
+# ── Static routes (must come before /{company_id}/... to avoid route conflicts) ──
+
+@router.post("/bulk-pull")
+async def bulk_pull_all_gantt(
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    Pull the latest Gantt data for ALL companies from the central spreadsheet.
+
+    Only available when GANTT_SPREADSHEET_ID is configured.
+    Iterates all companies, calls fetch_central_sheet_data() for each,
+    and saves a new GanttSnapshot. Returns a summary of results.
+
+    Returns:
+        {
+            "pulled": int,
+            "failed": int,
+            "results": [{"company_id": str, "company_name": str, "status": "ok"|"error", "error": str|None, "task_count": int}]
+        }
+    """
+    from app.config import settings as _settings
+
+    if not _settings.GANTT_SPREADSHEET_ID:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="GANTT_SPREADSHEET_ID not configured — bulk pull requires central spreadsheet mode",
+        )
+
+    # Fetch all companies
+    companies_result = await db.execute(select(Company).order_by(Company.name))
+    companies = companies_result.scalars().all()
+
+    pulled = 0
+    failed = 0
+    results = []
+
+    for company in companies:
+        try:
+            raw_data = sheets_service.fetch_central_sheet_data(company.name)
+            parsed = gantt_service.parse_sheet_data(raw_data)
+
+            prev_snapshot = await _get_latest_snapshot(company.id, db)
+            diff_result = gantt_service.diff_snapshots(prev_snapshot, parsed["tasks"])
+
+            snapshot = GanttSnapshot(
+                company_id=company.id,
+                upload_date=date.today(),
+                tasks=parsed["tasks"],
+                shipping_velocity=parsed["shipping_velocity"],
+                execution_speed=parsed["execution_speed"],
+                planning_depth=parsed["planning_depth"],
+                planning_quality_score=parsed["planning_quality_score"],
+                task_count=parsed["task_count"],
+                gantt_diff=diff_result,
+                scorecard_history=parsed.get("scorecard_history") or None,
+            )
+            db.add(snapshot)
+            await db.flush()
+
+            pulled += 1
+            results.append({
+                "company_id": str(company.id),
+                "company_name": company.name,
+                "status": "ok",
+                "task_count": parsed["task_count"],
+                "error": None,
+            })
+        except HTTPException as e:
+            # 404 = no tab found for this company in the spreadsheet — skip silently
+            failed += 1
+            results.append({
+                "company_id": str(company.id),
+                "company_name": company.name,
+                "status": "error",
+                "task_count": 0,
+                "error": e.detail,
+            })
+        except Exception as e:
+            failed += 1
+            results.append({
+                "company_id": str(company.id),
+                "company_name": company.name,
+                "status": "error",
+                "task_count": 0,
+                "error": str(e),
+            })
+
+    await db.commit()
+
+    return {
+        "pulled": pulled,
+        "failed": failed,
+        "results": results,
+    }
+
+
+@router.get("/portfolio-overview", response_model=PortfolioOverviewResponse)
+async def get_portfolio_overview(
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
+):
+    """
+    Return one row per company with stage counts + KPI scores from their
+    latest GanttSnapshot. Companies with no snapshot are included with
+    zero counts and null KPIs.
+    """
+    # ── 1. Fetch all companies ordered by name ────────────────────────────────
+    companies_result = await db.execute(select(Company).order_by(Company.name))
+    companies = companies_result.scalars().all()
+
+    if not companies:
+        return PortfolioOverviewResponse(rows=[], total_companies=0)
+
+    company_ids = [c.id for c in companies]
+
+    # ── 2. Fetch latest snapshot per company in one query ─────────────────────
+    from sqlalchemy import over, desc
+    from sqlalchemy.dialects.postgresql import aggregate_order_by  # noqa – not used
+    from sqlalchemy import func as sqlfunc
+
+    rn_col = sqlfunc.row_number().over(
+        partition_by=GanttSnapshot.company_id,
+        order_by=[
+            GanttSnapshot.upload_date.desc(),
+            GanttSnapshot.created_at.desc(),
+        ],
+    ).label("rn")
+
+    subq = (
+        select(GanttSnapshot, rn_col)
+        .where(GanttSnapshot.company_id.in_(company_ids))
+        .subquery()
+    )
+
+    latest_result = await db.execute(
+        select(GanttSnapshot).from_statement(
+            select(subq).where(subq.c.rn == 1)
+        )
+    )
+
+    snapshots_by_company: dict[uuid.UUID, GanttSnapshot] = {}
+    for snap in latest_result.scalars().all():
+        snapshots_by_company[snap.company_id] = snap
+
+    # ── 3. Build portfolio rows ───────────────────────────────────────────────
+    _STAGE_KEY_MAP = {
+        "Yet to Start": "yet_to_start",
+        "Delayed": "delayed",
+        "In Progress": "in_progress",
+        "Done": "done",
+        "Done but Delayed": "done_but_delayed",
+    }
+
+    rows: list[PortfolioRow] = []
+    for company in companies:
+        snap = snapshots_by_company.get(company.id)
+
+        if snap is None:
+            rows.append(
+                PortfolioRow(
+                    company_id=company.id,
+                    company_name=company.name,
+                    company_status=company.status.value if company.status else None,
+                    has_snapshot=False,
+                )
+            )
+            continue
+
+        counts: dict[str, int] = {k: 0 for k in _STAGE_KEY_MAP.values()}
+        tasks: list[dict] = snap.tasks or []
+        for task in tasks:
+            stage_label = (task.get("stage") or "").strip()
+            key = _STAGE_KEY_MAP.get(stage_label)
+            if key:
+                counts[key] += 1
+
+        rows.append(
+            PortfolioRow(
+                company_id=company.id,
+                company_name=company.name,
+                company_status=company.status.value if company.status else None,
+                yet_to_start=counts["yet_to_start"],
+                delayed=counts["delayed"],
+                in_progress=counts["in_progress"],
+                done=counts["done"],
+                done_but_delayed=counts["done_but_delayed"],
+                total_tasks=len(tasks),
+                execution_speed=snap.execution_speed,
+                planning_depth=snap.planning_depth,
+                shipping_velocity=snap.shipping_velocity,
+                has_snapshot=True,
+            )
+        )
+
+    return PortfolioOverviewResponse(rows=rows, total_companies=len(rows))
+
+
+# ── Per-company routes (parameterized — must come after static routes) ────────
 
 @router.post("/{company_id}/pull", response_model=GanttPullResponse)
 async def pull_gantt(
@@ -184,11 +384,35 @@ async def list_snapshots(
     )
 
 
+_TASK_DATE_FORMATS = [
+    "%b %d, %Y",
+    "%B %d, %Y",
+    "%m/%d/%Y",
+    "%d/%m/%Y",
+    "%Y-%m-%d",
+    "%m/%d/%y",
+    "%d-%m-%Y",
+]
+
+
+def _parse_task_date(val: Optional[str]) -> Optional[date]:
+    if not val:
+        return None
+    val = val.strip()
+    for fmt in _TASK_DATE_FORMATS:
+        try:
+            return datetime.strptime(val, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
 @router.get("/{company_id}/tasks", response_model=TasksResponse)
 async def get_tasks(
     company_id: uuid.UUID,
     division: Optional[str] = Query(default=None),
     stage: Optional[str] = Query(default=None),
+    date_window: int = Query(default=90, ge=1, le=365, description="±N days window around today for filtering tasks by start_date"),
     db: AsyncSession = Depends(get_db),
     _: TokenData = Depends(get_current_user),
 ):
@@ -199,12 +423,27 @@ async def get_tasks(
         return TasksResponse(
             tasks=[],
             total=0,
-            filters_applied={"division": division, "stage": stage},
+            filters_applied={"division": division, "stage": stage, "date_window": date_window},
         )
 
     tasks: list[dict] = snapshot.tasks
 
-    # Apply filters
+    # ── Date window filter: keep tasks whose start_date falls within ±date_window days ──
+    today = date.today()
+    window_start = today - timedelta(days=date_window)
+    window_end = today + timedelta(days=date_window)
+
+    date_filtered: list[dict] = []
+    for t in tasks:
+        parsed_start = _parse_task_date(t.get("start_date"))
+        if parsed_start is None:
+            # Tasks with unparseable/missing start_date are excluded from the window view
+            continue
+        if window_start <= parsed_start <= window_end:
+            date_filtered.append(t)
+    tasks = date_filtered
+
+    # Apply division / stage filters
     if division:
         tasks = [t for t in tasks if (t.get("division") or "").lower() == division.lower()]
     if stage:
@@ -218,7 +457,7 @@ async def get_tasks(
     return TasksResponse(
         tasks=task_objects,
         total=len(task_objects),
-        filters_applied={"division": division, "stage": stage},
+        filters_applied={"division": division, "stage": stage, "date_window": date_window},
     )
 
 
@@ -498,107 +737,3 @@ async def get_meeting_gantt_context(
     }
 
 
-@router.get("/portfolio-overview", response_model=PortfolioOverviewResponse)
-async def get_portfolio_overview(
-    db: AsyncSession = Depends(get_db),
-    _: TokenData = Depends(get_current_user),
-):
-    """
-    Return one row per company with stage counts + KPI scores from their
-    latest GanttSnapshot. Companies with no snapshot are included with
-    zero counts and null KPIs.
-    """
-    # ── 1. Fetch all companies ordered by name ────────────────────────────────
-    companies_result = await db.execute(select(Company).order_by(Company.name))
-    companies = companies_result.scalars().all()
-
-    if not companies:
-        return PortfolioOverviewResponse(rows=[], total_companies=0)
-
-    company_ids = [c.id for c in companies]
-
-    # ── 2. Fetch latest snapshot per company in one query ─────────────────────
-    # Use a subquery: rank snapshots per company by (upload_date DESC, created_at DESC)
-    # then keep only rank=1.
-    from sqlalchemy import over, desc
-    from sqlalchemy.dialects.postgresql import aggregate_order_by  # noqa – not used
-    from sqlalchemy import func as sqlfunc
-
-    # Subquery: add row_number partitioned by company_id
-    rn_col = sqlfunc.row_number().over(
-        partition_by=GanttSnapshot.company_id,
-        order_by=[
-            GanttSnapshot.upload_date.desc(),
-            GanttSnapshot.created_at.desc(),
-        ],
-    ).label("rn")
-
-    subq = (
-        select(GanttSnapshot, rn_col)
-        .where(GanttSnapshot.company_id.in_(company_ids))
-        .subquery()
-    )
-
-    latest_result = await db.execute(
-        select(GanttSnapshot).from_statement(
-            select(subq).where(subq.c.rn == 1)
-        )
-    )
-
-    # Build lookup: company_id → snapshot
-    snapshots_by_company: dict[uuid.UUID, GanttSnapshot] = {}
-    for snap in latest_result.scalars().all():
-        snapshots_by_company[snap.company_id] = snap
-
-    # ── 3. Build portfolio rows ───────────────────────────────────────────────
-    _STAGE_KEY_MAP = {
-        "Yet to Start": "yet_to_start",
-        "Delayed": "delayed",
-        "In Progress": "in_progress",
-        "Done": "done",
-        "Done but Delayed": "done_but_delayed",
-    }
-
-    rows: list[PortfolioRow] = []
-    for company in companies:
-        snap = snapshots_by_company.get(company.id)
-
-        if snap is None:
-            rows.append(
-                PortfolioRow(
-                    company_id=company.id,
-                    company_name=company.name,
-                    company_status=company.status.value if company.status else None,
-                    has_snapshot=False,
-                )
-            )
-            continue
-
-        # Count stages from tasks JSONB
-        counts: dict[str, int] = {k: 0 for k in _STAGE_KEY_MAP.values()}
-        tasks: list[dict] = snap.tasks or []
-        for task in tasks:
-            stage_label = (task.get("stage") or "").strip()
-            key = _STAGE_KEY_MAP.get(stage_label)
-            if key:
-                counts[key] += 1
-
-        rows.append(
-            PortfolioRow(
-                company_id=company.id,
-                company_name=company.name,
-                company_status=company.status.value if company.status else None,
-                yet_to_start=counts["yet_to_start"],
-                delayed=counts["delayed"],
-                in_progress=counts["in_progress"],
-                done=counts["done"],
-                done_but_delayed=counts["done_but_delayed"],
-                total_tasks=len(tasks),
-                execution_speed=snap.execution_speed,
-                planning_depth=snap.planning_depth,
-                shipping_velocity=snap.shipping_velocity,
-                has_snapshot=True,
-            )
-        )
-
-    return PortfolioOverviewResponse(rows=rows, total_companies=len(rows))

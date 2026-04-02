@@ -46,7 +46,7 @@ STAGE_SCORES = {
 # Weights from Excel N20 / N21
 EXEC_SPEED_WEIGHT = 0.7
 PLAN_DEPTH_WEIGHT = 0.3
-WINDOW_DAYS = 60  # ±60 days → 120-day window (Excel N7 = 120)
+WINDOW_DAYS = 90  # ±90 days → 180-day window
 
 
 # ── Date parsing helpers ──────────────────────────────────────────────────────
