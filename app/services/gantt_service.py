@@ -123,7 +123,11 @@ def compute_stage(
 
 # ── Metrics engine (replicates N3 / N4 / N1) ────────────────────────────────
 
-def compute_metrics_from_tasks(tasks: list[dict], today: Optional[date] = None) -> dict:
+def compute_metrics_from_tasks(
+    tasks: list[dict],
+    today: Optional[date] = None,
+    company_name: Optional[str] = None,
+) -> dict:
     """
     Compute Execution Speed (N3), Planning Depth (N4), and composite
     Shipping Velocity (N1) from the task list.
@@ -158,12 +162,18 @@ def compute_metrics_from_tasks(tasks: list[dict], today: Optional[date] = None) 
         if stage in stage_counts:
             stage_counts[stage] += 1
 
+    _company_tag = f" company={company_name!r}" if company_name else ""
     log.debug(
-        "METRICS: total=%d window=%s..%s unparseable=%d out_of_window=%d stage_counts=%s",
-        len(tasks), window_start, window_end, unparseable_dates, out_of_window, stage_counts,
+        "METRICS%s: total=%d window=%s..%s unparseable=%d out_of_window=%d stage_counts=%s",
+        _company_tag, len(tasks), window_start, window_end, unparseable_dates, out_of_window, stage_counts,
     )
+    if unparseable_dates:
+        log.warning(
+            "METRICS_PARSE_FAIL%s: %d/%d tasks had unparseable start_date — excluded from velocity window",
+            _company_tag, unparseable_dates, len(tasks),
+        )
     for t in tasks[:3]:
-        log.debug("SAMPLE start_date=%r  end_date=%r  stage=%r", t.get("start_date"), t.get("end_date"), t.get("stage"))
+        log.debug("SAMPLE%s start_date=%r  end_date=%r  stage=%r", _company_tag, t.get("start_date"), t.get("end_date"), t.get("stage"))
 
     total_in_window = sum(stage_counts.values())
     if total_in_window == 0:
@@ -202,7 +212,7 @@ def compute_metrics_from_tasks(tasks: list[dict], today: Optional[date] = None) 
 
 # ── Main parse entry point ────────────────────────────────────────────────────
 
-def parse_sheet_data(raw_data: dict) -> dict:
+def parse_sheet_data(raw_data: dict, company_name: Optional[str] = None) -> dict:
     """
     Takes raw data returned by sheets_service.fetch_sheet_data() and returns
     a structured dict ready to be stored in a GanttSnapshot.
@@ -221,7 +231,8 @@ def parse_sheet_data(raw_data: dict) -> dict:
     tasks: list[dict] = raw_data.get("tasks", [])
     scorecard_history: list[dict] = raw_data.get("scorecard_history", [])
 
-    log.info("PARSE: received tasks=%d scorecard_history=%d", len(tasks), len(scorecard_history))
+    _company_tag = f" company={company_name!r}" if company_name else ""
+    log.info("PARSE%s: received tasks=%d scorecard_history=%d", _company_tag, len(tasks), len(scorecard_history))
 
     # ── Resolve "today" — prefer the sheet's own TODAY() anchor (N6) ─────────
     # This ensures stage computation + window filtering match the sheet exactly.
@@ -230,17 +241,17 @@ def parse_sheet_data(raw_data: dict) -> dict:
     if raw_sheet_today:
         try:
             parsed_today = datetime.strptime(raw_sheet_today, "%Y-%m-%d").date()
-            log.info("PARSE: using sheet_today=%s (server today=%s)", parsed_today, date.today())
+            log.info("PARSE%s: using sheet_today=%s (server today=%s)", _company_tag, parsed_today, date.today())
             today = parsed_today
         except ValueError:
-            log.warning("PARSE: could not parse sheet_today=%r, falling back to server today", raw_sheet_today)
+            log.warning("PARSE%s: could not parse sheet_today=%r, falling back to server today", _company_tag, raw_sheet_today)
 
     # ── 1. Stage — always use the spreadsheet value (col J) ──────────────────
     # The Stage column is the single authoritative source. It is manually set by
     # the user via a dropdown in the central Gantt_Overall spreadsheet.
     # Server-side recomputation is NOT performed — it would incorrectly override
     # user-set stages because the central sheet has no completion date column.
-    log.info("PARSE: using spreadsheet stage values for all %d tasks (no server override)", len(tasks))
+    log.info("PARSE%s: using spreadsheet stage values for all %d tasks (no server override)", _company_tag, len(tasks))
 
     # ── 2. Metrics — server-computed (primary); sheet N1/N3/N4 as fallback ────
     # Server computation uses the sheet_today anchor (N6) so the ±90-day window
@@ -252,14 +263,15 @@ def parse_sheet_data(raw_data: dict) -> dict:
     sheet_pd = raw_data.get("planning_depth")
 
     log.info(
-        "PARSE: sheet metric values (reference only) SV=%s ES=%s PD=%s (sheet_today=%s)",
-        sheet_sv, sheet_es, sheet_pd, today,
+        "PARSE%s: sheet metric values (reference only) SV=%s ES=%s PD=%s (sheet_today=%s)",
+        _company_tag, sheet_sv, sheet_es, sheet_pd, today,
     )
 
     # Always run server computation
-    computed_metrics = compute_metrics_from_tasks(tasks, today=today)
+    computed_metrics = compute_metrics_from_tasks(tasks, today=today, company_name=company_name)
     log.info(
-        "PARSE: server-computed (primary) SV=%s ES=%s PD=%s",
+        "PARSE%s: server-computed (primary) SV=%s ES=%s PD=%s",
+        _company_tag,
         computed_metrics["shipping_velocity"],
         computed_metrics["execution_speed"],
         computed_metrics["planning_depth"],

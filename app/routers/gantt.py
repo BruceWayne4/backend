@@ -127,7 +127,7 @@ async def bulk_pull_all_gantt(
                 company_name,
                 _prefetched_metrics=overall_metrics,
             )
-            parsed = gantt_service.parse_sheet_data(raw_data)
+            parsed = gantt_service.parse_sheet_data(raw_data, company_name=company_name)
 
             prev_snapshot = await _get_latest_snapshot(company_id, db)
             diff_result = gantt_service.diff_snapshots(prev_snapshot, parsed["tasks"])
@@ -329,7 +329,7 @@ async def pull_gantt(
         raw_data = sheets_service.fetch_sheet_data(sheets_url)
 
     # Parse into structured form
-    parsed = gantt_service.parse_sheet_data(raw_data)
+    parsed = gantt_service.parse_sheet_data(raw_data, company_name=company.name)
 
     # Get previous snapshot for diff
     prev_snapshot = await _get_latest_snapshot(company_id, db)

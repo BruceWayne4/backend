@@ -413,6 +413,8 @@ def fetch_central_sheet_data(
         start_idx = 1
         log.debug("CENTRAL_FETCH: skipping header row")
 
+    date_parse_failures: list[tuple[int, str, str, str]] = []  # (row_idx, task_name, raw_start, raw_end)
+
     for row_idx, row in enumerate(raw_rows[start_idx:], start=start_idx + 1):
         # Pad row to at least 10 columns
         row = list(row) + [""] * (10 - len(row))
@@ -420,8 +422,10 @@ def fetch_central_sheet_data(
         division = str(row[0]).strip() or None
         project = str(row[1]).strip() or None
         task_name = str(row[2]).strip() or None
-        start_date = _parse_central_date(row[3])
-        end_date = _parse_central_date(row[4])
+        raw_start_val = row[3]
+        raw_end_val = row[4]
+        start_date = _parse_central_date(raw_start_val)
+        end_date = _parse_central_date(raw_end_val)
         duration_days = _safe_int(row[5])
         resource_1 = str(row[6]).strip() or None
         resource_2 = str(row[7]).strip() or None
@@ -434,6 +438,15 @@ def fetch_central_sheet_data(
         if not any([division, project, task_name]):
             skipped_empty += 1
             continue
+
+        # Track rows where date parsing failed — logged as a summary after the loop
+        if (raw_start_val or raw_end_val) and (start_date is None or end_date is None):
+            date_parse_failures.append((
+                row_idx,
+                task_name or "",
+                str(raw_start_val) if raw_start_val else "",
+                str(raw_end_val) if raw_end_val else "",
+            ))
 
         if len(tasks) < 5:
             log.info(
@@ -461,6 +474,22 @@ def fetch_central_sheet_data(
         "CENTRAL_FETCH: tasks parsed=%d skipped_empty=%d for company=%r",
         len(tasks), skipped_empty, company_name,
     )
+
+    # Log a single consolidated warning listing every row where date parsing broke.
+    # This makes it trivial to grep logs for "PARSE_FAIL" and see which companies
+    # have bad date formats in their sheet tabs.
+    if date_parse_failures:
+        log.warning(
+            "PARSE_FAIL company=%r — %d row(s) with unparseable dates:",
+            company_name, len(date_parse_failures),
+        )
+        for row_idx, task_nm, raw_s, raw_e in date_parse_failures:
+            log.warning(
+                "  PARSE_FAIL company=%r row=%d task=%r raw_start=%r raw_end=%r",
+                company_name, row_idx, task_nm, raw_s, raw_e,
+            )
+    else:
+        log.info("PARSE_FAIL company=%r — 0 date parse failures (all dates OK)", company_name)
 
     # ── 2. Metrics from Overall_Gantt summary tab ─────────────────────────────
     shipping_velocity: Optional[float] = None
