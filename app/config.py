@@ -28,7 +28,7 @@ class Settings(BaseSettings):
 
     # Claude / Anthropic (Phase 3 - GTM)
     CLAUDE_API_KEY: str = ""
-    ANTHROPIC_MODEL: str = "claude-3-5-sonnet-20241022"
+    ANTHROPIC_MODEL: str = "claude-sonnet-4-5-20250929"
 
     # Auth
     JWT_SECRET: str
