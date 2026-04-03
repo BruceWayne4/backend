@@ -48,6 +48,16 @@ tags_metadata = [
                        "extracted from meetings with due dates, assignees, and automatic status updates "
                        "(open, due-soon, overdue, resolved).",
     },
+    {
+        "name": "granola",
+        "description": "Granola AI note-taking app integration. Sync meeting notes directly from Granola "
+                       "for individual companies or all portfolio companies in parallel using incremental cursors.",
+    },
+    {
+        "name": "gtm",
+        "description": "Go-To-Market (GTM) plan management. Upload GTM playbooks and generate AI-powered "
+                       "personalised GTM plans per portfolio company based on meeting history and the active playbook.",
+    },
 ]
 
 app = FastAPI(
@@ -64,7 +74,9 @@ analyze project execution, monitor commitments, and gain AI-powered insights fro
 * **📈 Gantt Layer Analytics**: Pull data from Google Sheets and compute execution KPIs
 * **📝 AI-Powered Meeting Analysis**: Upload DOCX meeting notes for automatic parsing with Google Gemini
 * **✅ Commitment Tracking**: Automatically extract and track actionable commitments from meetings
-* **🔒 Secure Authentication**: JWT-based authentication for all protected endpoints
+* **🤝 Granola Integration**: Sync meeting notes directly from the Granola AI note-taking app
+* **🚀 GTM Plan Generation**: AI-powered Go-To-Market plans per portfolio company
+* ** Secure Authentication**: JWT-based authentication for all protected endpoints
 
 ### Tech Stack
 
@@ -72,6 +84,7 @@ analyze project execution, monitor commitments, and gain AI-powered insights fro
 * **PostgreSQL** with SQLAlchemy ORM
 * **Google Gemini AI** for intelligent meeting parsing
 * **Google Sheets API** for Gantt data integration
+* **Granola API** for meeting note synchronisation
 * **JWT Authentication** for secure access
 
 ### Getting Started
@@ -80,6 +93,7 @@ analyze project execution, monitor commitments, and gain AI-powered insights fro
 2. Include the token in the `Authorization: Bearer <token>` header
 3. Create or select a company via `/api/v1/companies`
 4. Upload meeting notes or pull Gantt data for analysis
+5. Sync Granola notes per-company via `/api/v1/companies/{company_id}/meetings/sync-from-granola`
 
 ### API Versioning
 
