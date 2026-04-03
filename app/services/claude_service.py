@@ -1,6 +1,6 @@
 """
 Claude API service — thin wrapper around the Anthropic SDK.
-Uses claude-3-5-sonnet-20241022 as resolved in decision D4.
+Uses claude-sonnet-4-5-20250929 (configurable via ANTHROPIC_MODEL env var).
 """
 import json
 import logging

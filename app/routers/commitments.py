@@ -1,7 +1,7 @@
 """
 Commitments router - handles commitment CRUD and status tracking.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -12,7 +12,8 @@ from app.schemas.commitment import (
     CommitmentUpdate
 )
 import uuid
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from typing import Optional
 import logging
 
 logger = logging.getLogger(__name__)
@@ -53,40 +54,62 @@ async def update_commitment_statuses(company_id: uuid.UUID, db: AsyncSession):
 @router.get("/companies/{company_id}/commitments", response_model=CommitmentList)
 async def list_commitments(
     company_id: uuid.UUID,
-    status_filter: str | None = None,
+    status_filter: Optional[str] = None,
+    date_window: Optional[int] = Query(
+        default=None,
+        description="Only return commitments whose due_date falls within ±N days of today. "
+                    "Commitments with no due_date are always included. "
+                    "Omit or set to 0 to return all.",
+        ge=1,
+    ),
     db: AsyncSession = Depends(get_db)
 ):
     """
     List commitments for a company.
     Sorted with overdue first, then by due date.
-    
+
     Query params:
     - status_filter: Filter by status (open, due-soon, overdue, resolved)
+    - date_window:   ±N days window around today applied to due_date (optional)
     """
     # First update statuses
     await update_commitment_statuses(company_id, db)
-    
+
     # Build query
     query = select(Commitment).where(Commitment.company_id == company_id)
-    
+
     if status_filter:
         query = query.where(Commitment.status == status_filter)
-    
+
+    # Date-window filter: include rows where due_date is within [today-N, today+N]
+    # Rows with NULL due_date are always included.
+    if date_window:
+        today = date.today()
+        window_start = today - timedelta(days=date_window)
+        window_end   = today + timedelta(days=date_window)
+        query = query.where(
+            (Commitment.due_date == None) |  # noqa: E711
+            (
+                (Commitment.due_date >= window_start) &
+                (Commitment.due_date <= window_end)
+            )
+        )
+
     # Order: overdue first (status='overdue'), then by due date ascending
     query = query.order_by(
         Commitment.status == 'overdue',
         Commitment.due_date.asc().nullslast()
     )
-    
+
     result = await db.execute(query)
     commitments = result.scalars().all()
-    
+
     # Compute days_overdue for each
     for comm in commitments:
         if comm.due_date and comm.status in ['overdue', 'due-soon']:
             days_diff = (date.today() - comm.due_date).days
             comm.days_overdue = days_diff if days_diff > 0 else None
-    
+
     return {"commitments": commitments}
 
 
