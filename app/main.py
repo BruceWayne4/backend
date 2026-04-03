@@ -6,7 +6,6 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
-from app.config import settings
 from app.auth.jwt import (
     LoginRequest,
     TokenResponse,
@@ -148,17 +147,3 @@ async def health():
     return {"status": "ok"}
 
 
-# ── Debug: credentials path check (remove after confirming) ──────────────────
-@app.get("/debug/credentials", tags=["health"])
-async def debug_credentials():
-    import os
-    import glob
-    creds_path = settings.GOOGLE_CREDENTIALS_FILE
-    secrets_files = glob.glob("/etc/secrets/*")
-    return {
-        "GOOGLE_CREDENTIALS_FILE": creds_path,
-        "file_exists": os.path.exists(creds_path),
-        "abs_path": os.path.abspath(creds_path),
-        "cwd": os.getcwd(),
-        "etc_secrets_contents": secrets_files,
-    }
