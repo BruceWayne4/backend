@@ -46,7 +46,7 @@ STAGE_SCORES = {
 # Weights from Excel N20 / N21
 EXEC_SPEED_WEIGHT = 0.7
 PLAN_DEPTH_WEIGHT = 0.3
-WINDOW_DAYS = 90  # ±90 days → 180-day window
+WINDOW_DAYS = 60  # ±60 days → 120-day window (matches Google Sheet formula)
 
 
 # ── Date parsing helpers ──────────────────────────────────────────────────────
@@ -258,34 +258,56 @@ def parse_sheet_data(raw_data: dict, company_name: Optional[str] = None) -> dict
     # user-set stages because the central sheet has no completion date column.
     log.info("PARSE%s: using spreadsheet stage values for all %d tasks (no server override)", _company_tag, len(tasks))
 
-    # ── 2. Metrics — server-computed (primary); sheet N1/N3/N4 as fallback ────
-    # Server computation uses the sheet_today anchor (N6) so the ±90-day window
-    # matches the sheet exactly. Sheet formula values (N1/N3/N4) are kept only
-    # as a safety net when server computation returns None (e.g. zero tasks fall
-    # inside the window).
+    # ── 2. Metrics — resolution priority ─────────────────────────────────────
+    #
+    # Central spreadsheet mode (GANTT_SPREADSHEET_ID set):
+    #   The Overall_Gantt tab already has Google-Sheets-formula-computed values
+    #   for SV/ES/PD using the sheet's own window and TODAY() anchor. These are
+    #   the canonical values — use them as the PRIMARY source.
+    #   Server computation is still run as a fallback when sheet values are None
+    #   (e.g. a company row is missing from Overall_Gantt).
+    #
+    # Legacy per-company sheet mode (sheet_today from N6 is available):
+    #   Server computation uses the sheet_today anchor (N6) so the ±60-day
+    #   window matches the sheet exactly. Sheet formula values (N1/N3/N4)
+    #   are kept as a fallback when server returns None (zero tasks in window).
     sheet_sv = raw_data.get("shipping_velocity")
     sheet_es = raw_data.get("execution_speed")
     sheet_pd = raw_data.get("planning_depth")
 
+    # sheet_today is None in central mode; present in legacy per-company mode.
+    # When it is None we are in central mode → sheet values take priority.
+    is_central_mode = raw_sheet_today is None
+
     log.info(
-        "PARSE%s: sheet metric values (reference only) SV=%s ES=%s PD=%s (sheet_today=%s)",
-        _company_tag, sheet_sv, sheet_es, sheet_pd, today,
+        "PARSE%s: sheet metric values SV=%s ES=%s PD=%s (sheet_today=%s, central_mode=%s)",
+        _company_tag, sheet_sv, sheet_es, sheet_pd, today, is_central_mode,
     )
 
-    # Always run server computation
+    # Always run server computation (needed as fallback in central mode and
+    # as primary in legacy mode)
     computed_metrics = compute_metrics_from_tasks(tasks, today=today, company_name=company_name)
     log.info(
-        "PARSE%s: server-computed (primary) SV=%s ES=%s PD=%s",
+        "PARSE%s: server-computed SV=%s ES=%s PD=%s",
         _company_tag,
         computed_metrics["shipping_velocity"],
         computed_metrics["execution_speed"],
         computed_metrics["planning_depth"],
     )
 
-    # Server value wins; sheet value is fallback when server returns None
-    shipping_velocity = computed_metrics["shipping_velocity"] if computed_metrics["shipping_velocity"] is not None else sheet_sv
-    execution_speed   = computed_metrics["execution_speed"]   if computed_metrics["execution_speed"]   is not None else sheet_es
-    planning_depth    = computed_metrics["planning_depth"]    if computed_metrics["planning_depth"]    is not None else sheet_pd
+    if is_central_mode:
+        # Central mode: sheet (Overall_Gantt) values are authoritative.
+        # Fall back to server-computed only when the sheet value is absent.
+        shipping_velocity = sheet_sv if sheet_sv is not None else computed_metrics["shipping_velocity"]
+        execution_speed   = sheet_es if sheet_es is not None else computed_metrics["execution_speed"]
+        planning_depth    = sheet_pd if sheet_pd is not None else computed_metrics["planning_depth"]
+    else:
+        # Legacy per-company mode: server-computed value is primary (uses
+        # the sheet_today anchor for an exact ±60-day window match).
+        # Sheet formula values (N1/N3/N4) are the fallback.
+        shipping_velocity = computed_metrics["shipping_velocity"] if computed_metrics["shipping_velocity"] is not None else sheet_sv
+        execution_speed   = computed_metrics["execution_speed"]   if computed_metrics["execution_speed"]   is not None else sheet_es
+        planning_depth    = computed_metrics["planning_depth"]    if computed_metrics["planning_depth"]    is not None else sheet_pd
 
     # ── 3. Planning quality score (task granularity + count health) ───────────
     planning_quality_score = compute_planning_quality_score(tasks)
