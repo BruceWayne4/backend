@@ -6,6 +6,7 @@ from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.openapi.utils import get_openapi
 
+from app.config import settings
 from app.auth.jwt import (
     LoginRequest,
     TokenResponse,
@@ -114,8 +115,8 @@ Current version: **v1.0.0** - All endpoints are prefixed with `/api/v1`
 # ── CORS ─────────────────────────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )

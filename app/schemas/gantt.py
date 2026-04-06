@@ -45,8 +45,8 @@ class GanttPullResponse(BaseModel):
     snapshot_id: uuid.UUID = Field(description="ID of the created snapshot")
     upload_date: date = Field(description="Date of the snapshot")
     task_count: int = Field(description="Total number of tasks in the snapshot")
-    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity KPI (0-100)", examples=[75.5])
-    execution_speed: Optional[float] = Field(None, description="Execution speed KPI (0-100)", examples=[82.3])
+    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity KPI (can be negative when many tasks are Delayed)", examples=[0.755])
+    execution_speed: Optional[float] = Field(None, description="Execution speed KPI (can be negative due to Delayed task penalties)", examples=[0.823])
     planning_depth: Optional[float] = Field(None, description="Planning depth KPI (0-100)", examples=[68.9])
     planning_quality_score: Optional[float] = Field(None, description="Overall planning quality score (0-100)", examples=[71.2])
     gantt_diff: Optional[GanttDiff] = Field(None, description="Diff from previous snapshot")
@@ -84,7 +84,7 @@ class TasksResponse(BaseModel):
 
 class VelocityPoint(BaseModel):
     upload_date: date = Field(description="Date of the velocity measurement")
-    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity value (0-100)")
+    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity value (can be negative when many tasks are Delayed)")
 
 
 class VelocityHistoryResponse(BaseModel):
@@ -103,8 +103,8 @@ class PortfolioRow(BaseModel):
     done_but_delayed: int = Field(default=0, description="Count of tasks completed but delayed")
     total_tasks: int = Field(default=0, description="Total task count")
     execution_speed: Optional[float] = Field(None, description="Execution speed KPI (0-100)")
-    planning_depth: Optional[float] = Field(None, description="Planning depth KPI (0-100)")
-    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity KPI (0-100)")
+    planning_depth: Optional[float] = Field(None, description="Planning depth KPI (0.0–1.0)")
+    shipping_velocity: Optional[float] = Field(None, description="Shipping velocity KPI (can be negative when many tasks are Delayed)")
     has_snapshot: bool = Field(default=False, description="Whether company has any Gantt snapshots")
 
 

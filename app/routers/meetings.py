@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
+from app.auth.jwt import get_current_user, TokenData
 from app.models.meeting import Meeting
 from app.models.commitment import Commitment
 from app.schemas.meeting import (
@@ -15,8 +16,9 @@ from app.schemas.meeting import (
 )
 from app.services import docx_parser, gemini_parser
 from app.services.gantt_suggestion_service import persist_suggestions, suggestion_to_dict
+from app.utils import parse_due_date
 import uuid
-from datetime import datetime, date
+from datetime import datetime, timezone
 import os
 import tempfile
 import logging
@@ -26,27 +28,12 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["meetings"])
 
 
-def parse_due_date(date_str):
-    """
-    Parse a date string (YYYY-MM-DD) into a Python date object.
-    Returns None if date_str is None or invalid.
-    """
-    if not date_str:
-        return None
-    try:
-        if isinstance(date_str, date):
-            return date_str
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except (ValueError, TypeError) as e:
-        logger.warning(f"Failed to parse due_date '{date_str}': {e}")
-        return None
-
-
 @router.post("/companies/{company_id}/meetings/upload-docx", response_model=MeetingUploadResponse)
 async def upload_meeting_docx(
     company_id: uuid.UUID,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """
     Upload a DOCX file containing ONE meeting's notes.
@@ -98,7 +85,7 @@ async def upload_meeting_docx(
             financials_mentioned=ai_parsed.get('financials_mentioned'),
             sentiment=ai_parsed.get('sentiment'),
             sentiment_reason=ai_parsed.get('sentiment_reason'),
-            parsed_at=datetime.utcnow()
+            parsed_at=datetime.now(timezone.utc),
         )
         db.add(meeting)
         await db.flush()
@@ -154,7 +141,8 @@ async def upload_meeting_docx(
 async def upload_test_meeting_dump(
     company_id: uuid.UUID,
     file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """
     TEST ENDPOINT: Upload Meeting_Dump.docx with multiple meetings.
@@ -213,7 +201,7 @@ async def upload_test_meeting_dump(
                 existing_meeting.financials_mentioned = ai_parsed.get('financials_mentioned')
                 existing_meeting.sentiment = ai_parsed.get('sentiment')
                 existing_meeting.sentiment_reason = ai_parsed.get('sentiment_reason')
-                existing_meeting.parsed_at = datetime.utcnow()
+                existing_meeting.parsed_at = datetime.now(timezone.utc)
                 
                 meeting = existing_meeting
                 
@@ -246,7 +234,7 @@ async def upload_test_meeting_dump(
                     financials_mentioned=ai_parsed.get('financials_mentioned'),
                     sentiment=ai_parsed.get('sentiment'),
                     sentiment_reason=ai_parsed.get('sentiment_reason'),
-                    parsed_at=datetime.utcnow()
+                    parsed_at=datetime.now(timezone.utc),
                 )
                 db.add(meeting)
                 await db.flush()
@@ -304,7 +292,8 @@ async def upload_test_meeting_dump(
 @router.get("/companies/{company_id}/meetings", response_model=MeetingList)
 async def list_meetings(
     company_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """List all meetings for a company, ordered by date descending."""
     result = await db.execute(
@@ -320,7 +309,8 @@ async def list_meetings(
 async def get_meeting(
     company_id: uuid.UUID,
     meeting_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """Get a specific meeting."""
     result = await db.execute(
@@ -341,11 +331,12 @@ async def get_meeting(
 @router.post("/companies/{company_id}/meetings/sync-from-granola")
 async def sync_company_from_granola(
     company_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """
     Sync all meetings for a company from Granola API.
-    
+
     Fetches meeting notes from Granola, parses with Gemini AI,
     and stores in database with proper linkage.
     """
@@ -382,11 +373,12 @@ async def sync_company_from_granola(
 @router.post("/meetings/sync-all-from-granola")
 async def sync_all_from_granola(
     company_ids: list[uuid.UUID],
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    _: TokenData = Depends(get_current_user),
 ):
     """
     Sync meetings for multiple companies from Granola API in parallel.
-    
+
     Processes up to 5 companies concurrently with rate limiting.
     """
     from app.models.company import Company

@@ -16,6 +16,7 @@ from app.services.gemini_parser import parse_meeting_with_gemini
 from app.services.gantt_suggestion_service import persist_suggestions, suggestion_to_dict
 from app.models.meeting import Meeting
 from app.models.commitment import Commitment
+from app.utils import parse_due_date
 
 logger = logging.getLogger(__name__)
 
@@ -35,14 +36,7 @@ class SyncResult:
     suggestions_count: int = 0
 
 
-def parse_due_date(date_str):
-    """Parse due date string to date object."""
-    if not date_str:
-        return None
-    try:
-        return datetime.strptime(date_str, "%Y-%m-%d").date()
-    except (ValueError, TypeError):
-        return None
+
 
 
 async def process_granola_note(
@@ -78,7 +72,7 @@ async def process_granola_note(
             scheduled_time.replace('Z', '+00:00')
         ).date()
     else:
-        meeting_date = datetime.utcnow().date()
+        meeting_date = datetime.now(timezone.utc).date()
 
     # Parse Granola note's own updated_at for incremental sync cursor
     granola_updated_at: Optional[datetime] = None
@@ -118,7 +112,7 @@ async def process_granola_note(
             financials_mentioned=ai_parsed.get('financials_mentioned'),
             sentiment=ai_parsed.get('sentiment'),
             sentiment_reason=ai_parsed.get('sentiment_reason'),
-            parsed_at=datetime.utcnow()
+            parsed_at=datetime.now(timezone.utc)
         )
         db.add(meeting)
         await db.flush()
@@ -254,7 +248,7 @@ async def sync_company_meetings(
                     'note_id': note.get('id'),
                     'note_title': note.get('title'),
                     'error': str(e),
-                    'timestamp': datetime.utcnow().isoformat()
+                    'timestamp': datetime.now(timezone.utc).isoformat()
                 })
                 logger.error(f"❌ Failed to process note {note.get('id')}: {e}")
 
@@ -266,7 +260,7 @@ async def sync_company_meetings(
         result.errors.append({
             'stage': 'company_sync',
             'error': str(e),
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
         logger.error(f"❌ Failed to sync company {company_name}: {e}")
 
@@ -332,29 +326,28 @@ async def sync_all_companies_parallel(
 
     async def sync_with_limit(company: dict):
         async with semaphore:
-            async with db_session_factory() as db:
-                try:
-                    result = await sync_company_meetings(
-                        company['name'],
-                        uuid.UUID(company['id']),
-                        db,
-                        all_notes=all_notes,
-                    )
-                    logger.info(
-                        f"✅ Synced {company['name']}: "
-                        f"{result.notes_processed} processed, "
-                        f"{result.notes_skipped} skipped, "
-                        f"{result.notes_failed} failed"
-                    )
-                    return result
-                except Exception as e:
-                    logger.error(f"❌ Failed to sync {company['name']}: {e}")
-                    return SyncResult(
-                        company_name=company['name'],
-                        company_id=company['id'],
-                        success=False,
-                        errors=[{'error': str(e)}]
-                    )
+            try:
+                result = await sync_company_meetings(
+                    company['name'],
+                    uuid.UUID(company['id']),
+                    db_session_factory,
+                    all_notes=all_notes,
+                )
+                logger.info(
+                    f"✅ Synced {company['name']}: "
+                    f"{result.notes_processed} processed, "
+                    f"{result.notes_skipped} skipped, "
+                    f"{result.notes_failed} failed"
+                )
+                return result
+            except Exception as e:
+                logger.error(f"❌ Failed to sync {company['name']}: {e}")
+                return SyncResult(
+                    company_name=company['name'],
+                    company_id=company['id'],
+                    success=False,
+                    errors=[{'error': str(e)}]
+                )
 
     tasks = [sync_with_limit(company) for company in company_list]
     results = await asyncio.gather(*tasks, return_exceptions=True)

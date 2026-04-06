@@ -1,6 +1,6 @@
 import uuid
 from datetime import date, datetime
-from sqlalchemy import String, Text, Date, DateTime, Integer, func, ForeignKey
+from sqlalchemy import String, Text, Date, DateTime, Integer, func, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from app.database import Base
@@ -51,4 +51,11 @@ class Meeting(Base):
     )
     updated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), onupdate=func.now(), nullable=True
+    )
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "granola_note_id", name="uq_meeting_granola_note"),
+        Index("ix_meetings_company_id", "company_id"),
+        Index("ix_meetings_granola_note_id", "granola_note_id"),
+        Index("ix_meetings_granola_updated_at", "granola_updated_at"),
     )

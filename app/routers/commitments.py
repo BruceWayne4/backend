@@ -12,7 +12,7 @@ from app.schemas.commitment import (
     CommitmentUpdate
 )
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 import logging
 
@@ -97,7 +97,7 @@ async def list_commitments(
 
     # Order: overdue first (status='overdue'), then by due date ascending
     query = query.order_by(
-        Commitment.status == 'overdue',
+        (Commitment.status == 'overdue').desc(),  # overdue rows sort FIRST
         Commitment.due_date.asc().nullslast()
     )
 
@@ -166,7 +166,7 @@ async def update_commitment(
     if update_data.status is not None:
         commitment.status = update_data.status
         if update_data.status == 'resolved':
-            commitment.resolved_at = datetime.utcnow()
+            commitment.resolved_at = datetime.now(timezone.utc)
             if update_data.resolved_in_meeting_id:
                 commitment.resolved_in_meeting_id = update_data.resolved_in_meeting_id
     

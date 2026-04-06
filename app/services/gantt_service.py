@@ -201,6 +201,11 @@ def compute_metrics_from_tasks(
     planning_depth = min((yts_count / total_in_window) * 2, 1.0)
 
     # Composite Shipping Velocity
+    # NOTE: shipping_velocity (and execution_speed) CAN be negative.
+    # When the window contains many Delayed tasks (score = -0.5 each) the
+    # weighted_sum / non_yts_total ratio goes below 0, and the composite
+    # N1 = ES*0.7 + PD*0.3 inherits that negative value.
+    # The frontend and any consumers must handle values outside [0, 1].
     shipping_velocity = (execution_speed * EXEC_SPEED_WEIGHT) + (planning_depth * PLAN_DEPTH_WEIGHT)
 
     return {
