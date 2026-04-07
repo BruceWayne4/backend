@@ -198,6 +198,8 @@ def _parse_central_date(val) -> Optional[str]:
         "%d %B %Y",    # "11 April 2026"
         "%d-%b-%Y",    # "8-Apr-2026"  (day-MonAbbr-year, no leading zero handled by %d)
         "%d-%B-%Y",    # "8-April-2026" (day-FullMonth-year)
+        "%d %b, %Y",   # "8 Jan, 2026" / "26 Jan, 2026"  (day MonAbbr, YYYY)
+        "%d %B, %Y",   # "8 January, 2026"               (day FullMonth, YYYY)
         "%m/%d/%Y",    # "01/20/2025"
         "%m/%d/%y",    # "01/20/25"
         "%Y-%m-%d",    # "2025-01-20"
@@ -206,17 +208,22 @@ def _parse_central_date(val) -> Optional[str]:
     for candidate_val in (val_norm, val) if val_norm != val else (val,):
         for fmt in formats:
             try:
-                return _dt.strptime(candidate_val, fmt).date().isoformat()
+                result = _dt.strptime(candidate_val, fmt).date().isoformat()
+                log.debug("CENTRAL_DATE: %r matched fmt=%r → %r", val, fmt, result)
+                return result
             except ValueError:
                 continue
 
     # Partial date: "Mar 9" / "Apr 15" / "Jun 14" — month + day, no year.
+    # Also handles day-first partials: "29 September" / "25 Sep" / "20 October".
     # Infer the year: use the current year; if the resulting date is more than
     # 6 months in the past, bump to next year (avoids stale dates for future tasks).
     partial_formats = [
         "%b %d",   # "Mar 9", "Apr 15"
         "%B %d",   # "March 9", "April 15"
         "%b %-d",  # same but explicit no-padding (Linux only; harmless fallback)
+        "%d %b",   # "25 Sep", "9 Mar"  (day-first abbreviated month, no year)
+        "%d %B",   # "29 September", "20 October"  (day-first full month, no year)
     ]
     for fmt in partial_formats:
         try:
@@ -407,39 +414,171 @@ def fetch_central_sheet_data(
     tasks = []
     skipped_empty = 0
 
-    # Detect if first row is a header (Division / Project / Task ...)
+    # ── Column layout detection ───────────────────────────────────────────────
+    # Standard layout: A=Division, B=Project, C=Task, D=Start Date, E=End Date,
+    #                  F=Duration, G=Resource1, H=Resource2, I=Resource3, J=Stage
+    #
+    # Some company tabs have an extra leading column (e.g. "notion_page_id") that
+    # shifts every subsequent column right by 1.  We detect the header row and
+    # resolve each column index by name so the parser is layout-agnostic.
+    #
+    # Default column indices (0-based) — used when no header row is present:
+    COL_DIVISION    = 0
+    COL_PROJECT     = 1
+    COL_TASK        = 2
+    COL_START       = 3
+    COL_END         = 4
+    COL_DURATION    = 5
+    COL_RES1        = 6
+    COL_RES2        = 7
+    COL_RES3        = 8
+    COL_STAGE       = 9
+    COL_COMPLETION  = -1   # sentinel: absent unless found in header
+
+    # Keywords used to identify each column by header name (case-insensitive).
+    # Each list is ordered most-specific → least-specific.
+    _COL_KEYWORDS: dict[str, list[str]] = {
+        "division":         ["division", "div"],
+        "project":          ["project", "proj"],
+        "task":             ["task", "tasks", "item"],
+        "start_date":       ["start date", "start_date", "start"],
+        "end_date":         ["end date", "end_date", "due date", "due", "end"],
+        "duration":         ["duration", "days", "dur"],
+        "resource_1":       ["resource 1", "resource1"],
+        "resource_2":       ["resource 2", "resource2"],
+        "resource_3":       ["resource 3", "resource3"],
+        "stage":            ["stage", "status", "state"],
+        "completion_date":  ["completion date", "completion_date", "completed", "completion"],
+    }
+
+    # Sentinel value returned by _find_col when a column is absent from the header.
+    _COL_ABSENT = -1
+
+    def _find_col(
+        header_row: list,
+        keywords: list[str],
+        default: int,
+        optional: bool = False,
+    ) -> int:
+        """
+        Find the column index whose header matches any keyword (case-insensitive).
+
+        Scans the full header row.  Returns:
+          - The matched index (with a COL_SHIFT warning if it differs from `default`)
+          - `default` if not found and optional=False  (with a COL_MISSING warning)
+          - `_COL_ABSENT` (-1) if not found and optional=True  (no warning — absence is expected)
+        """
+        header_lower = [str(c).strip().lower() for c in header_row]
+        for idx, cell in enumerate(header_lower):
+            if cell in keywords:
+                if idx != default:
+                    log.warning(
+                        "COL_SHIFT company=%r: column %r found at index %d (expected %d) — remapping",
+                        company_name, keywords[0], idx, default,
+                    )
+                else:
+                    log.debug(
+                        "COL_OK company=%r: column %r at expected index %d",
+                        company_name, keywords[0], idx,
+                    )
+                return idx
+        # Column not found in header
+        if optional:
+            log.debug(
+                "COL_ABSENT company=%r: optional column %r not in header — skipping",
+                company_name, keywords[0],
+            )
+            return _COL_ABSENT
+        log.warning(
+            "COL_MISSING company=%r: required column %r not found in header %r — using default index %d",
+            company_name, keywords[0], header_lower[:14], default,
+        )
+        return default
+
+    # Detect if first row is a header and resolve column indices from it.
+    # A row is treated as a header when ≥2 of its first 8 cells match a known keyword.
     start_idx = 0
-    if raw_rows and raw_rows[0] and str(raw_rows[0][0]).strip().lower() in ("division", "div"):
+    first_row_cells = [str(c).strip().lower() for c in (raw_rows[0] if raw_rows else [])]
+    _all_keywords = {kw for kws in _COL_KEYWORDS.values() for kw in kws}
+    _header_hits = sum(1 for c in first_row_cells[:8] if c in _all_keywords)
+    if _header_hits >= 2:
         start_idx = 1
-        log.debug("CENTRAL_FETCH: skipping header row")
+        header_row = list(raw_rows[0]) + [""] * (14 - len(raw_rows[0]))
+        log.info(
+            "CENTRAL_FETCH: header row detected (%d keyword hits) for company=%r — header=%r",
+            _header_hits, company_name, [str(c).strip() for c in header_row[:14]],
+        )
+        COL_DIVISION   = _find_col(header_row, _COL_KEYWORDS["division"],        0)
+        COL_PROJECT    = _find_col(header_row, _COL_KEYWORDS["project"],         1)
+        COL_TASK       = _find_col(header_row, _COL_KEYWORDS["task"],            2)
+        COL_START      = _find_col(header_row, _COL_KEYWORDS["start_date"],      3)
+        COL_END        = _find_col(header_row, _COL_KEYWORDS["end_date"],        4)
+        COL_DURATION   = _find_col(header_row, _COL_KEYWORDS["duration"],        5)
+        COL_RES1       = _find_col(header_row, _COL_KEYWORDS["resource_1"],      6)
+        COL_RES2       = _find_col(header_row, _COL_KEYWORDS["resource_2"],      7)
+        COL_RES3       = _find_col(header_row, _COL_KEYWORDS["resource_3"],      8)
+        COL_STAGE      = _find_col(header_row, _COL_KEYWORDS["stage"],           9)
+        COL_COMPLETION = _find_col(header_row, _COL_KEYWORDS["completion_date"], -1, optional=True)
+        log.info(
+            "COL_MAP company=%r: division=%d project=%d task=%d start=%d end=%d "
+            "duration=%d res1=%d res2=%d res3=%d stage=%d completion=%d",
+            company_name,
+            COL_DIVISION, COL_PROJECT, COL_TASK, COL_START, COL_END,
+            COL_DURATION, COL_RES1, COL_RES2, COL_RES3, COL_STAGE, COL_COMPLETION,
+        )
+    else:
+        log.info(
+            "CENTRAL_FETCH: no header row detected for company=%r (hits=%d) — using default column indices",
+            company_name, _header_hits,
+        )
 
     date_parse_failures: list[tuple[int, str, str, str]] = []  # (row_idx, task_name, raw_start, raw_end)
 
+    # Pre-compute the minimum row length needed (exclude _COL_ABSENT sentinels)
+    _required_cols = [
+        c for c in (COL_DIVISION, COL_PROJECT, COL_TASK, COL_START, COL_END,
+                    COL_DURATION, COL_RES1, COL_RES2, COL_RES3, COL_STAGE,
+                    COL_COMPLETION)
+        if c != _COL_ABSENT
+    ]
+    _min_row_len = (max(_required_cols) + 1) if _required_cols else 10
+
     for row_idx, row in enumerate(raw_rows[start_idx:], start=start_idx + 1):
-        # Pad row to at least 10 columns
-        row = list(row) + [""] * (10 - len(row))
+        # Pad row to cover all required column indices
+        row = list(row) + [""] * (_min_row_len - len(row))
 
-        division = str(row[0]).strip() or None
-        project = str(row[1]).strip() or None
-        task_name = str(row[2]).strip() or None
-        raw_start_val = row[3]
-        raw_end_val = row[4]
-        start_date = _parse_central_date(raw_start_val)
-        end_date = _parse_central_date(raw_end_val)
-        duration_days = _safe_int(row[5])
-        resource_1 = str(row[6]).strip() or None
-        resource_2 = str(row[7]).strip() or None
-        resource_3 = str(row[8]).strip() or None
+        division  = str(row[COL_DIVISION]).strip() or None
+        project   = str(row[COL_PROJECT]).strip()  or None
+        task_name = str(row[COL_TASK]).strip()     or None
 
-        raw_stage = str(row[9]).strip()
+        # Read start/end dates — use empty string when column is absent (sentinel -1)
+        raw_start_val = row[COL_START]   if COL_START   != _COL_ABSENT else ""
+        raw_end_val   = row[COL_END]     if COL_END     != _COL_ABSENT else ""
+        start_date    = _parse_central_date(raw_start_val)
+        end_date      = _parse_central_date(raw_end_val)
+        duration_days = _safe_int(row[COL_DURATION]) if COL_DURATION != _COL_ABSENT else None
+        resource_1    = (str(row[COL_RES1]).strip() or None) if COL_RES1 != _COL_ABSENT else None
+        resource_2    = (str(row[COL_RES2]).strip() or None) if COL_RES2 != _COL_ABSENT else None
+        resource_3    = (str(row[COL_RES3]).strip() or None) if COL_RES3 != _COL_ABSENT else None
+
+        raw_stage = (str(row[COL_STAGE]).strip() if COL_STAGE != _COL_ABSENT else "")
         stage = _strip_stage_prefix(raw_stage) if raw_stage else None
+
+        # Read completion_date when the column exists in this sheet's layout
+        raw_completion = (
+            row[COL_COMPLETION] if COL_COMPLETION != _COL_ABSENT and COL_COMPLETION < len(row)
+            else ""
+        )
+        completion_date = _parse_central_date(raw_completion) if raw_completion else None
 
         # Skip completely empty rows (visual separators in the sheet)
         if not any([division, project, task_name]):
             skipped_empty += 1
             continue
 
-        # Track rows where date parsing failed — logged as a summary after the loop
+        # Track rows where date parsing failed — logged as a summary after the loop.
+        # Only flag when a raw value was present but couldn't be parsed; absent columns
+        # (sentinel -1) produce empty raw values and are intentionally excluded.
         if (raw_start_val or raw_end_val) and (start_date is None or end_date is None):
             date_parse_failures.append((
                 row_idx,
@@ -450,8 +589,8 @@ def fetch_central_sheet_data(
 
         if len(tasks) < 5:
             log.info(
-                "CENTRAL_TASK[%d]: div=%r project=%r task=%r start=%r end=%r stage=%r",
-                row_idx, division, project, task_name, start_date, end_date, stage,
+                "CENTRAL_TASK[%d]: div=%r project=%r task=%r start=%r end=%r stage=%r completion=%r",
+                row_idx, division, project, task_name, start_date, end_date, stage, completion_date,
             )
 
         tasks.append(
@@ -466,7 +605,7 @@ def fetch_central_sheet_data(
                 "resource_2": resource_2,
                 "resource_3": resource_3,
                 "stage": stage,
-                "completion_date": None,  # not present in central sheet
+                "completion_date": completion_date,
             }
         )
 
@@ -495,6 +634,7 @@ def fetch_central_sheet_data(
     shipping_velocity: Optional[float] = None
     execution_speed: Optional[float] = None
     planning_depth: Optional[float] = None
+    sheet_task_count: Optional[int] = None  # total count from Overall_Gantt — validation anchor
 
     try:
         # Use pre-fetched metrics when available (bulk-pull passes these in to

@@ -239,6 +239,27 @@ def parse_sheet_data(raw_data: dict, company_name: Optional[str] = None) -> dict
     _company_tag = f" company={company_name!r}" if company_name else ""
     log.info("PARSE%s: received tasks=%d scorecard_history=%d", _company_tag, len(tasks), len(scorecard_history))
 
+    # ── Task-count integrity check ────────────────────────────────────────────
+    # sheet_task_count is the "Total" column from Overall_Gantt — the sheet's
+    # own authoritative row count for this company's tab. Comparing it against
+    # len(tasks) catches rows silently dropped during fetch (e.g. a tab that was
+    # truncated by the API page limit) or rows incorrectly skipped during parse
+    # (e.g. a header-detection false positive, or a blank-row filter too broad).
+    sheet_task_count: Optional[int] = raw_data.get("sheet_task_count")
+    if sheet_task_count is not None:
+        parsed_count = len(tasks)
+        if parsed_count != sheet_task_count:
+            log.warning(
+                "TASK_COUNT_MISMATCH%s: parsed=%d  sheet_total=%d  delta=%+d"
+                " — rows may have been dropped or double-counted during fetch/parse",
+                _company_tag, parsed_count, sheet_task_count, parsed_count - sheet_task_count,
+            )
+        else:
+            log.info(
+                "TASK_COUNT_OK%s: parsed=%d matches sheet_total=%d",
+                _company_tag, parsed_count, sheet_task_count,
+            )
+
     # ── Resolve "today" — prefer the sheet's own TODAY() anchor (N6) ─────────
     # This ensures stage computation + window filtering match the sheet exactly.
     raw_sheet_today: Optional[str] = raw_data.get("sheet_today")
