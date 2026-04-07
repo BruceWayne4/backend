@@ -44,6 +44,11 @@ class CompanyBase(BaseModel):
         description="Google Sheets URL for Gantt chart data",
         examples=["https://docs.google.com/spreadsheets/d/1abc...xyz/edit"]
     )
+    pl_sheets_url: Optional[str] = Field(
+        None,
+        description="Google Sheets URL for P&L data",
+        examples=["https://docs.google.com/spreadsheets/d/1fy...No/edit"]
+    )
 
 
 class CompanyCreate(CompanyBase):
@@ -59,6 +64,7 @@ class CompanyUpdate(BaseModel):
     investment_amount_inr: Optional[Decimal] = None
     status: Optional[CompanyStatus] = None
     sheets_url: Optional[str] = None
+    pl_sheets_url: Optional[str] = None
 
 
 class CompanyRead(CompanyBase):

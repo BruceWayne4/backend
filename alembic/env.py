@@ -18,6 +18,7 @@ from app.database import Base  # noqa: E402
 # Import all models so Alembic can detect them
 import app.models.company  # noqa: F401, E402
 import app.models.gantt  # noqa: F401, E402
+import app.models.pl_snapshot  # noqa: F401, E402
 
 config = context.config
 

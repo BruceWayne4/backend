@@ -42,6 +42,7 @@ class Company(Base):
         server_default="Active",
     )
     sheets_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    pl_sheets_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
